@@ -35,7 +35,7 @@ You help Nathan manage his business. You can:
 Keep responses concise and practical. Nathan is a tradie, not a desk worker.`
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 500,
       system: systemContext,
       messages: [{ role: 'user', content: message }]
