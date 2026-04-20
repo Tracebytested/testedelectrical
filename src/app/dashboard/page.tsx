@@ -15,9 +15,6 @@ const statusColour: Record<string, string> = {
   active: 'bg-blue-100 text-blue-800',
   completed: 'bg-purple-100 text-purple-800',
   invoiced: 'bg-green-100 text-green-800',
-  sent: 'bg-blue-100 text-blue-800',
-  paid: 'bg-green-100 text-green-800',
-  draft: 'bg-gray-100 text-gray-700',
 }
 
 export default function DashboardPage() {
@@ -27,9 +24,19 @@ export default function DashboardPage() {
   const [aiLoading, setAiLoading] = useState(false)
   const [polling, setPolling] = useState(false)
   const [pollResult, setPollResult] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch('/api/dashboard').then(r => r.json()).then(setStats)
+    fetch('/api/dashboard')
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          setError(data.error)
+        } else {
+          setStats(data)
+        }
+      })
+      .catch(e => setError(e.message))
   }, [])
 
   const pollEmail = async () => {
@@ -40,12 +47,12 @@ export default function DashboardPage() {
       const data = await res.json()
       if (data.processed?.length > 0) {
         setPollResult(`✅ ${data.processed.length} new work order${data.processed.length > 1 ? 's' : ''} created`)
-        fetch('/api/dashboard').then(r => r.json()).then(setStats)
+        fetch('/api/dashboard').then(r => r.json()).then(setStats).catch(() => {})
       } else {
-        setPollResult('No new emails to process')
+        setPollResult(data.error ? `Error: ${data.error}` : 'No new emails to process')
       }
-    } catch {
-      setPollResult('Error checking emails')
+    } catch (e: any) {
+      setPollResult('Error checking emails — check Gmail credentials in variables')
     }
     setPolling(false)
   }
@@ -61,17 +68,16 @@ export default function DashboardPage() {
         body: JSON.stringify({ message: aiMsg })
       })
       const data = await res.json()
-      setAiReply(data.response || 'No response')
+      setAiReply(data.response || data.error || 'No response')
       setAiMsg('')
     } catch {
-      setAiReply('Error getting response')
+      setAiReply('Error — check Anthropic API key in variables')
     }
     setAiLoading(false)
   }
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -88,41 +94,46 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-800 rounded-xl px-4 py-3 text-sm">
+          Database error: {error} — make sure DATABASE_URL is set in Railway variables
+        </div>
+      )}
+
       {pollResult && (
         <div className="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-xl px-4 py-3 text-sm">
           {pollResult}
         </div>
       )}
 
-      {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Active jobs" value={stats?.jobs.active || '0'} sub="in progress" colour="blue" />
-        <StatCard label="Pending jobs" value={stats?.jobs.pending || '0'} sub="awaiting action" colour="amber" />
-        <StatCard label="Outstanding" value={`$${parseFloat(stats?.invoices.outstanding || '0').toFixed(0)}`} sub="invoices sent" colour="purple" />
-        <StatCard label="Paid this month" value={`$${parseFloat(stats?.invoices.paid_this_month || '0').toFixed(0)}`} sub="collected" colour="green" />
+        <StatCard label="Active jobs" value={stats?.jobs?.active || '0'} sub="in progress" colour="blue" />
+        <StatCard label="Pending jobs" value={stats?.jobs?.pending || '0'} sub="awaiting action" colour="amber" />
+        <StatCard label="Outstanding" value={`$${parseFloat(stats?.invoices?.outstanding || '0').toFixed(0)}`} sub="invoices sent" colour="purple" />
+        <StatCard label="Paid this month" value={`$${parseFloat(stats?.invoices?.paid_this_month || '0').toFixed(0)}`} sub="collected" colour="green" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Recent jobs */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <h2 className="font-semibold text-gray-900">Recent jobs</h2>
             <Link href="/dashboard/jobs" className="text-sm text-blue-600 hover:underline">View all</Link>
           </div>
           <div className="divide-y divide-gray-50">
-            {stats?.recent_jobs.length === 0 && (
+            {!stats && !error && (
+              <p className="text-gray-400 text-sm px-5 py-8 text-center">Loading...</p>
+            )}
+            {stats && (!stats.recent_jobs || stats.recent_jobs.length === 0) && (
               <p className="text-gray-400 text-sm px-5 py-8 text-center">No jobs yet. Click "Check Emails" to import work orders.</p>
             )}
-            {stats?.recent_jobs.map(job => (
+            {stats?.recent_jobs?.map(job => (
               <Link
                 key={job.id}
                 href={`/dashboard/jobs/${job.id}`}
                 className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-gray-900 truncate">{job.title}</span>
-                  </div>
+                  <div className="font-medium text-sm text-gray-900 truncate">{job.title}</div>
                   <div className="text-xs text-gray-500 mt-0.5 truncate">{job.client_name} · {job.site_address}</div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -136,34 +147,31 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Right column */}
         <div className="space-y-4">
-          {/* Quick stats */}
           <div className="bg-white rounded-2xl border border-gray-100 p-4">
             <h3 className="font-semibold text-sm text-gray-900 mb-3">Quick summary</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Quotes sent</span>
-                <span className="font-medium">{stats?.quotes.sent || 0}</span>
+                <span className="font-medium">{stats?.quotes?.sent || 0}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Quotes accepted</span>
-                <span className="font-medium text-green-700">{stats?.quotes.accepted || 0}</span>
+                <span className="font-medium text-green-700">{stats?.quotes?.accepted || 0}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Overdue invoices</span>
-                <span className={`font-medium ${parseInt(stats?.invoices.overdue || '0') > 0 ? 'text-red-600' : 'text-gray-700'}`}>
-                  {stats?.invoices.overdue || 0}
+                <span className={`font-medium ${parseInt(stats?.invoices?.overdue || '0') > 0 ? 'text-red-600' : 'text-gray-700'}`}>
+                  {stats?.invoices?.overdue || 0}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Jobs completed</span>
-                <span className="font-medium">{stats?.jobs.completed || 0}</span>
+                <span className="font-medium">{stats?.jobs?.completed || 0}</span>
               </div>
             </div>
           </div>
 
-          {/* AI Assistant */}
           <div className="bg-[#1a1a1a] rounded-2xl p-4">
             <h3 className="font-semibold text-sm text-[#F5C400] mb-3">⚡ Ask AI Admin</h3>
             {aiReply && (
