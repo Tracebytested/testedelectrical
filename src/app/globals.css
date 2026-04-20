@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-yellow: #F5C400;
+  --brand-dark: #1a1a1a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #f4f4f0;
+  color: #1a1a1a;
+}
+
+.status-pending  { @apply bg-amber-100 text-amber-800 }
+.status-active   { @apply bg-blue-100 text-blue-800 }
+.status-completed { @apply bg-purple-100 text-purple-800 }
+.status-invoiced { @apply bg-green-100 text-green-800 }
+.status-sent     { @apply bg-blue-100 text-blue-800 }
+.status-paid     { @apply bg-green-100 text-green-800 }
+.status-overdue  { @apply bg-red-100 text-red-800 }
+.status-draft    { @apply bg-gray-100 text-gray-700 }
+.status-accepted { @apply bg-green-100 text-green-800 }
