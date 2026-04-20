@@ -1,216 +1,55 @@
 'use client'
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
-interface Stats {
-  jobs: { pending: string; active: string; completed: string; total: string }
-  invoices: { outstanding: string; paid_this_month: string; overdue: string; sent: string }
-  quotes: { draft: string; sent: string; accepted: string }
-  recent_jobs: Array<{ id: number; job_number: string; title: string; status: string; client_name: string; site_address: string; created_at: string }>
-  recent_emails: Array<{ id: number; from_address: string; subject: string; received_at: string }>
-}
+export default function LoginPage() {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const router = useRouter()
 
-const statusColour: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-800',
-  active: 'bg-blue-100 text-blue-800',
-  completed: 'bg-purple-100 text-purple-800',
-  invoiced: 'bg-green-100 text-green-800',
-  sent: 'bg-blue-100 text-blue-800',
-  paid: 'bg-green-100 text-green-800',
-  draft: 'bg-gray-100 text-gray-700',
-}
-
-export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [aiMsg, setAiMsg] = useState('')
-  const [aiReply, setAiReply] = useState('')
-  const [aiLoading, setAiLoading] = useState(false)
-  const [polling, setPolling] = useState(false)
-  const [pollResult, setPollResult] = useState('')
-
-  useEffect(() => {
-    fetch('/api/dashboard').then(r => r.json()).then(setStats)
-  }, [])
-
-  const pollEmail = async () => {
-    setPolling(true)
-    setPollResult('')
-    try {
-      const res = await fetch('/api/gmail', { method: 'POST' })
-      const data = await res.json()
-      if (data.processed?.length > 0) {
-        setPollResult(`✅ ${data.processed.length} new work order${data.processed.length > 1 ? 's' : ''} created`)
-        fetch('/api/dashboard').then(r => r.json()).then(setStats)
-      } else {
-        setPollResult('No new emails to process')
-      }
-    } catch {
-      setPollResult('Error checking emails')
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    })
+    if (res.ok) {
+      router.push('/dashboard')
+    } else {
+      setError('Wrong password')
     }
-    setPolling(false)
-  }
-
-  const askAI = async () => {
-    if (!aiMsg.trim()) return
-    setAiLoading(true)
-    setAiReply('')
-    try {
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: aiMsg })
-      })
-      const data = await res.json()
-      setAiReply(data.response || 'No response')
-      setAiMsg('')
-    } catch {
-      setAiReply('Error getting response')
-    }
-    setAiLoading(false)
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
-            {new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
+    <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="text-[#F5C400] font-bold text-4xl tracking-tight">TESTED</div>
+          <div className="text-white/50 text-sm mt-1">Electrical & Communications Services</div>
         </div>
-        <button
-          onClick={pollEmail}
-          disabled={polling}
-          className="bg-[#1a1a1a] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-        >
-          {polling ? 'Checking...' : '📬 Check Emails'}
-        </button>
-      </div>
-
-      {pollResult && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-xl px-4 py-3 text-sm">
-          {pollResult}
-        </div>
-      )}
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Active jobs" value={stats?.jobs.active || '0'} sub="in progress" colour="blue" />
-        <StatCard label="Pending jobs" value={stats?.jobs.pending || '0'} sub="awaiting action" colour="amber" />
-        <StatCard label="Outstanding" value={`$${parseFloat(stats?.invoices.outstanding || '0').toFixed(0)}`} sub="invoices sent" colour="purple" />
-        <StatCard label="Paid this month" value={`$${parseFloat(stats?.invoices.paid_this_month || '0').toFixed(0)}`} sub="collected" colour="green" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Recent jobs */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Recent jobs</h2>
-            <Link href="/dashboard/jobs" className="text-sm text-blue-600 hover:underline">View all</Link>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {stats?.recent_jobs.length === 0 && (
-              <p className="text-gray-400 text-sm px-5 py-8 text-center">No jobs yet. Click "Check Emails" to import work orders.</p>
-            )}
-            {stats?.recent_jobs.map(job => (
-              <Link
-                key={job.id}
-                href={`/dashboard/jobs/${job.id}`}
-                className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-gray-900 truncate">{job.title}</span>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5 truncate">{job.client_name} · {job.site_address}</div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColour[job.status] || 'bg-gray-100 text-gray-700'}`}>
-                    {job.status}
-                  </span>
-                  <span className="text-xs text-gray-400">{job.job_number}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Right column */}
-        <div className="space-y-4">
-          {/* Quick stats */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-4">
-            <h3 className="font-semibold text-sm text-gray-900 mb-3">Quick summary</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Quotes sent</span>
-                <span className="font-medium">{stats?.quotes.sent || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Quotes accepted</span>
-                <span className="font-medium text-green-700">{stats?.quotes.accepted || 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Overdue invoices</span>
-                <span className={`font-medium ${parseInt(stats?.invoices.overdue || '0') > 0 ? 'text-red-600' : 'text-gray-700'}`}>
-                  {stats?.invoices.overdue || 0}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Jobs completed</span>
-                <span className="font-medium">{stats?.jobs.completed || 0}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Assistant */}
-          <div className="bg-[#1a1a1a] rounded-2xl p-4">
-            <h3 className="font-semibold text-sm text-[#F5C400] mb-3">⚡ Ask AI Admin</h3>
-            {aiReply && (
-              <div className="bg-white/10 rounded-xl px-3 py-2.5 text-white/90 text-sm mb-3 leading-relaxed">
-                {aiReply}
-              </div>
-            )}
-            <textarea
-              value={aiMsg}
-              onChange={e => setAiMsg(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), askAI())}
-              placeholder="Ask anything about your business..."
-              className="w-full bg-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2.5 text-sm resize-none outline-none border border-white/10 focus:border-[#F5C400]/50"
-              rows={3}
+        <form onSubmit={handleLogin} className="bg-[#252525] rounded-2xl p-8 shadow-2xl">
+          <h1 className="text-white font-semibold text-lg mb-6">Admin Dashboard</h1>
+          <div className="mb-4">
+            <label className="block text-white/50 text-sm mb-2">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full bg-[#1a1a1a] text-white rounded-lg px-4 py-3 outline-none border border-white/10 focus:border-[#F5C400] transition-colors"
+              placeholder="Enter your password"
+              autoFocus
             />
-            <button
-              onClick={askAI}
-              disabled={aiLoading || !aiMsg.trim()}
-              className="mt-2 w-full bg-[#F5C400] text-[#1a1a1a] font-semibold rounded-xl py-2 text-sm hover:bg-yellow-400 transition-colors disabled:opacity-40"
-            >
-              {aiLoading ? 'Thinking...' : 'Ask'}
-            </button>
           </div>
-        </div>
+          {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+          <button
+            type="submit"
+            className="w-full bg-[#F5C400] text-[#1a1a1a] font-bold rounded-lg py-3 hover:bg-yellow-400 transition-colors"
+          >
+            Sign In
+          </button>
+        </form>
       </div>
-    </div>
-  )
-}
-
-function StatCard({ label, value, sub, colour }: { label: string; value: string; sub: string; colour: string }) {
-  const colours: Record<string, string> = {
-    blue: 'bg-blue-50 border-blue-100',
-    amber: 'bg-amber-50 border-amber-100',
-    purple: 'bg-purple-50 border-purple-100',
-    green: 'bg-green-50 border-green-100',
-  }
-  const textColours: Record<string, string> = {
-    blue: 'text-blue-900',
-    amber: 'text-amber-900',
-    purple: 'text-purple-900',
-    green: 'text-green-900',
-  }
-  return (
-    <div className={`rounded-2xl border p-4 ${colours[colour]}`}>
-      <div className="text-xs text-gray-500 mb-1">{label}</div>
-      <div className={`text-2xl font-bold ${textColours[colour]}`}>{value}</div>
-      <div className="text-xs text-gray-400 mt-0.5">{sub}</div>
     </div>
   )
 }
