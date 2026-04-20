@@ -13,14 +13,30 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<any[]>([])
   const [filter, setFilter] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState<number | null>(null)
 
-  useEffect(() => {
+  const loadJobs = () => {
+    setLoading(true)
     const url = filter === 'all' ? '/api/jobs' : `/api/jobs?status=${filter}`
     fetch(url).then(r => r.json()).then(data => {
       setJobs(Array.isArray(data) ? data : [])
       setLoading(false)
     })
-  }, [filter])
+  }
+
+  useEffect(() => { loadJobs() }, [filter])
+
+  const deleteJob = async (id: number, title: string) => {
+    if (!confirm(`Delete "${title}"?\n\nThis will also delete any quotes, invoices and reports linked to this job.`)) return
+    setDeleting(id)
+    try {
+      await fetch(`/api/jobs?id=${id}`, { method: 'DELETE' })
+      setJobs(prev => prev.filter(j => j.id !== id))
+    } catch {
+      alert('Error deleting job')
+    }
+    setDeleting(null)
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -34,7 +50,6 @@ export default function JobsPage() {
         </Link>
       </div>
 
-      {/* Filters */}
       <div className="flex gap-2 mb-5">
         {['all', 'pending', 'active', 'completed', 'invoiced'].map(s => (
           <button
@@ -66,19 +81,20 @@ export default function JobsPage() {
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Site</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Status</th>
                 <th className="text-left px-4 py-3 text-gray-500 font-medium">Date</th>
+                <th className="text-left px-4 py-3 text-gray-500 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {jobs.map(job => (
-                <tr key={job.id} className="hover:bg-gray-50 transition-colors cursor-pointer">
+                <tr key={job.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3.5">
                     <Link href={`/dashboard/jobs/${job.id}`} className="block">
                       <div className="font-medium text-gray-900 truncate max-w-xs">{job.title}</div>
                       <div className="text-xs text-gray-400">{job.job_number}</div>
                     </Link>
                   </td>
-                  <td className="px-4 py-3.5 text-gray-600">{job.client_name}</td>
-                  <td className="px-4 py-3.5 text-gray-500 truncate max-w-[160px]">{job.site_address}</td>
+                  <td className="px-4 py-3.5 text-gray-600">{job.client_name || '—'}</td>
+                  <td className="px-4 py-3.5 text-gray-500 truncate max-w-[160px]">{job.site_address || '—'}</td>
                   <td className="px-4 py-3.5">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusColour[job.status] || 'bg-gray-100 text-gray-700'}`}>
                       {job.status}
@@ -86,6 +102,15 @@ export default function JobsPage() {
                   </td>
                   <td className="px-4 py-3.5 text-gray-400 text-xs">
                     {new Date(job.created_at).toLocaleDateString('en-AU')}
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <button
+                      onClick={() => deleteJob(job.id, job.title)}
+                      disabled={deleting === job.id}
+                      className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors disabled:opacity-40"
+                    >
+                      {deleting === job.id ? '...' : 'Delete'}
+                    </button>
                   </td>
                 </tr>
               ))}
