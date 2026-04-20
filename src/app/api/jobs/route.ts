@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest) {
     const data = await req.json()
     const { id, ...fields } = data
 
-    const allowedFields = ['status', 'title', 'description', 'site_address', 'scheduled_date', 'completed_date']
+    const allowedFields = ['status', 'title', 'description', 'site_address', 'scheduled_date', 'completed_date', 'client_id']
     const updates = Object.entries(fields)
       .filter(([key]) => allowedFields.includes(key))
       .map(([key], i) => `${key} = $${i + 2}`)
@@ -82,6 +82,29 @@ export async function PATCH(req: NextRequest) {
     )
 
     return NextResponse.json(result.rows[0])
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'Job ID required' }, { status: 400 })
+    }
+
+    // Delete related records first
+    await query('UPDATE emails SET job_id = NULL WHERE job_id = $1', [id])
+    await query('UPDATE sms_log SET job_id = NULL WHERE job_id = $1', [id])
+    await query('DELETE FROM reports WHERE job_id = $1', [id])
+    await query('DELETE FROM invoices WHERE job_id = $1', [id])
+    await query('DELETE FROM quotes WHERE job_id = $1', [id])
+    await query('DELETE FROM jobs WHERE id = $1', [id])
+
+    return NextResponse.json({ success: true })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
