@@ -4,49 +4,123 @@ import { extractWorkOrderFromEmail, generateEmailReply } from '@/lib/ai'
 import { extractPDFText, findOrCreateClient, getNextJobNumber } from '@/lib/utils'
 import { sendNathanSMS, formatJobAlert } from '@/lib/sms'
 import { query } from '@/lib/db'
+import Anthropic from '@anthropic-ai/sdk'
 
-// Keywords that strongly suggest a real work order
-const WORK_ORDER_KEYWORDS = [
-  'work order', 'workorder', 'job order', 'job request',
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+// Senders/domains to always ignore
+const BLOCKED_SENDERS = [
+  'esv', 'energysafe', 'esvconnect', 'checkhero',
+  'noreply', 'no-reply', 'donotreply', 'do-not-reply',
+  'notify.railway', 'hello@notify', 'team.twilio',
+  'twilio.com', 'railway.app', 'anthropic.com',
+  'amazon.com', 'costco', 'marketing',
+  'newsletter', 'unsubscribe', 'mailchimp',
+  'employer satisfaction', 'apprenticeships',
+  'worksafe', 'safework', 'fairwork',
+  'xero.com', 'myob.com', 'intuit.com'
+]
+
+// Subject/body patterns to always ignore  
+const BLOCKED_PATTERNS = [
+  'certificate of electrical safety',
+  'certificate of compliance',
+  'coes ', 'n504', // ESV cert numbers
+  'electrical safety certificate',
+  'your certificate',
+  'compliance certificate',
+  'google calendar',
+  'calendar invite',
+  'you have been invited',
+  'invite.ics',
+  'unsubscribe',
+  'view in browser',
+  'privacy policy',
+  'terms and conditions',
+  'account statement',
+  'your invoice from',
+  'payment received',
+  'payment confirmation',
+  'your receipt',
+  'order confirmation',
+  'your order',
+  'survey',
+  'feedback request'
+]
+
+// Must contain at least one of these to be considered a work order
+const WORK_ORDER_SIGNALS = [
+  'work order', 'workorder', 'job order',
   'maintenance request', 'repair request', 'service request',
   'please attend', 'please complete', 'please carry out',
-  'assigned to carry out', 'assigned to attend', 'assigned to complete',
-  'electrical work', 'electrical inspection', 'smoke alarm',
-  'safety check', 'fault', 'urgent repair', 'emergency repair',
-  'tenant request', 'property maintenance', 'please find attached work',
-  'please find attached job', 'new job', 'new work', 'attend site',
-  'attend the property', 'carry out', 'scope of works',
-  'quote required', 'quotation required', 'please quote'
+  'assigned to carry out', 'assigned to attend',
+  'please find attached work', 'please find attached job',
+  'attend site', 'attend the property',
+  'scope of works', 'new job', 'new task',
+  'quote required', 'quotation required', 'please quote',
+  'electrical work required', 'fault', 'urgent repair',
+  'smoke alarm check', 'safety check required',
+  'inspection required', 'please inspect',
+  'tenant request', 'landlord request',
+  'property maintenance', 'routine maintenance'
 ]
 
-// Keywords that mean we should definitely skip this email
-const SKIP_KEYWORDS = [
-  'unsubscribe', 'newsletter', 'marketing', 'noreply@',
-  'no-reply@', 'donotreply@', 'notification@', 'notify@',
-  'hello@notify', 'team@', 'support@', 'invoice+statements',
-  'store-news@', 'news@marketing', 'employer satisfaction',
-  'apprenticeships modernisation', 'invite.ics', 'calendar invite',
-  'google calendar', 'you have been invited'
-]
-
-function isWorkOrderEmail(subject: string, body: string, from: string): boolean {
+function shouldSkipEmail(subject: string, body: string, from: string): { skip: boolean; reason: string } {
   const combined = (subject + ' ' + body + ' ' + from).toLowerCase()
+  const fromLower = from.toLowerCase()
+  const subjectLower = subject.toLowerCase()
 
-  // Hard skip — definitely not a work order
-  for (const skip of SKIP_KEYWORDS) {
-    if (combined.includes(skip)) return false
+  // Check blocked senders
+  for (const blocked of BLOCKED_SENDERS) {
+    if (fromLower.includes(blocked)) {
+      return { skip: true, reason: `Blocked sender: ${blocked}` }
+    }
   }
 
-  // Must contain at least one work order keyword
-  for (const keyword of WORK_ORDER_KEYWORDS) {
-    if (combined.includes(keyword)) return true
+  // Check blocked patterns in subject/body
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (combined.includes(pattern)) {
+      return { skip: true, reason: `Blocked pattern: ${pattern}` }
+    }
   }
 
-  // Also check subject line specifically for address patterns (e.g. "Unit 1/7 Spicer Blvd")
-  const hasAddress = /\d+[\/\-]\d+|\d+\s+[A-Z][a-z]+\s+(St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent)/i.test(subject)
-  const hasJobRef = /\#\d{3,}|WO[\-\s]?\d+|JO[\-\s]?\d+/i.test(subject + body)
+  // Must have at least one work order signal
+  const hasSignal = WORK_ORDER_SIGNALS.some(signal => combined.includes(signal))
+  
+  // Also accept if subject has address + job ref pattern
+  const hasAddressInSubject = /\d+[\/\-]\d+|\d+\s+[A-Z][a-z]+\s+(St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent)/i.test(subject)
+  const hasJobRef = /\#\d{3,}|WO[\-\s]?\d+|JO[\-\s]?\d+/i.test(subject + ' ' + body)
+  const hasWorkOrderInSubject = /work order|workorder|job order|new job/i.test(subjectLower)
 
-  return hasAddress || hasJobRef
+  if (!hasSignal && !hasAddressInSubject && !hasJobRef && !hasWorkOrderInSubject) {
+    return { skip: true, reason: 'No work order signals found' }
+  }
+
+  return { skip: false, reason: '' }
+}
+
+// Final AI check — is this actually a work order requesting electrical work?
+async function aiConfirmWorkOrder(subject: string, body: string, from: string): Promise<boolean> {
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 100,
+      messages: [{
+        role: 'user',
+        content: `You are filtering emails for an electrical contractor. Is this email asking for electrical work to be done, or is it a work order/job request? Answer only YES or NO.
+
+From: ${from}
+Subject: ${subject}
+Body (first 500 chars): ${body.substring(0, 500)}
+
+Is this a genuine request for electrical work or a work order? YES or NO only.`
+      }]
+    })
+    const answer = response.content[0].type === 'text' ? response.content[0].text.trim().toUpperCase() : 'NO'
+    return answer.startsWith('YES')
+  } catch {
+    return false
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -63,11 +137,19 @@ export async function POST(req: NextRequest) {
       )
       if (exists.rows.length > 0) continue
 
-      // Check if this looks like a work order
-      if (!isWorkOrderEmail(email.subject, email.body, email.from)) {
-        // Mark as read but don't process
+      // First pass — rule-based filter
+      const { skip, reason } = shouldSkipEmail(email.subject, email.body, email.from)
+      if (skip) {
         await markAsRead(email.id)
-        skipped.push(email.subject)
+        skipped.push(`${email.subject} (${reason})`)
+        continue
+      }
+
+      // Second pass — AI confirmation
+      const isWorkOrder = await aiConfirmWorkOrder(email.subject, email.body, email.from)
+      if (!isWorkOrder) {
+        await markAsRead(email.id)
+        skipped.push(`${email.subject} (AI: not a work order)`)
         continue
       }
 
@@ -84,7 +166,7 @@ export async function POST(req: NextRequest) {
       // Use AI to extract work order info
       const workOrder = await extractWorkOrderFromEmail(email.body, pdfText || undefined)
 
-      // Build a sensible title fallback
+      // Build a sensible title with multiple fallbacks
       const jobTitle = workOrder.job_title
         || email.subject
         || `${workOrder.client || 'Client'} — Work Order`
@@ -106,7 +188,7 @@ export async function POST(req: NextRequest) {
           jobNumber,
           clientId,
           jobTitle,
-          workOrder.description || email.snippet || '',
+          workOrder.description || '',
           workOrder.site_address || '',
           workOrder.work_order_ref || '',
           workOrder.contact_name || ''
@@ -121,10 +203,9 @@ export async function POST(req: NextRequest) {
         [email.id, email.from, workOrder.contact_name || '', email.subject, email.body, jobId]
       )
 
-      // Mark email as read
       await markAsRead(email.id)
 
-      // Send Nathan an SMS alert
+      // SMS Nathan
       try {
         await sendNathanSMS(formatJobAlert({
           job_number: jobNumber,
@@ -133,11 +214,9 @@ export async function POST(req: NextRequest) {
           site_address: workOrder.site_address || 'See email',
           work_order_ref: workOrder.work_order_ref
         }))
-      } catch (smsErr) {
-        console.error('SMS failed:', smsErr)
-      }
+      } catch (e) { console.error('SMS error:', e) }
 
-      // Auto-acknowledge email to agency
+      // Auto-acknowledge
       if (workOrder.contact_email) {
         try {
           const replyBody = await generateEmailReply({
@@ -151,20 +230,13 @@ export async function POST(req: NextRequest) {
             subject: `RE: ${email.subject}`,
             body: buildEmailHTML(`<p>${replyBody.replace(/\n/g, '</p><p>')}</p>`)
           })
-        } catch (emailErr) {
-          console.error('Reply email failed:', emailErr)
-        }
+        } catch (e) { console.error('Reply error:', e) }
       }
 
       processed.push({ jobNumber, title: jobTitle, client: workOrder.client })
     }
 
-    return NextResponse.json({
-      success: true,
-      processed,
-      skipped: skipped.length,
-      skipped_subjects: skipped
-    })
+    return NextResponse.json({ success: true, processed, skipped: skipped.length, skipped_subjects: skipped })
   } catch (error: any) {
     console.error('Gmail poll error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
