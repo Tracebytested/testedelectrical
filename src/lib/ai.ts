@@ -22,7 +22,7 @@ export async function extractWorkOrderFromEmail(emailText: string, pdfText?: str
     : emailText
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 1000,
     messages: [{
       role: 'user',
@@ -77,7 +77,7 @@ export async function generateReportFromDescription(input: {
   price_ex_gst: number
 }> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 1500,
     messages: [{
       role: 'user',
@@ -132,7 +132,7 @@ export async function generateQuoteItems(jobDescription: string): Promise<Array<
   rate: number
 }>> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 1000,
     messages: [{
       role: 'user',
@@ -182,7 +182,7 @@ export async function generateEmailReply(context: {
   }
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 600,
     messages: [{
       role: 'user',
@@ -217,7 +217,7 @@ export async function processJobUpdateSMS(smsText: string, jobContext?: {
   reportData?: any
 }> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 800,
     messages: [{
       role: 'user',
