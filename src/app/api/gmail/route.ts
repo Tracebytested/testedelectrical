@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
         [
           jobNumber,
           clientId,
-          workOrder.job_title,
+          workOrder.job_title || `${workOrder.client} — Work Order` || 'New Work Order',
           workOrder.description,
           workOrder.site_address,
           workOrder.work_order_ref,
