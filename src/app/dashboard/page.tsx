@@ -173,7 +173,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-[#1a1a1a] rounded-2xl p-4">
-            <h3 className="font-semibold text-sm text-[#F5C400] mb-3">⚡ Ask AI Admin</h3>
+            <h3 className="font-semibold text-sm text-[#F5C400] mb-3">⚡ Ask Beezy</h3>
             {aiReply && (
               <div className="bg-white/10 rounded-xl px-3 py-2.5 text-white/90 text-sm mb-3 leading-relaxed">
                 {aiReply}
@@ -183,7 +183,7 @@ export default function DashboardPage() {
               value={aiMsg}
               onChange={e => setAiMsg(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), askAI())}
-              placeholder="Ask anything about your business..."
+              placeholder="Ask Beezy anything..."
               className="w-full bg-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2.5 text-sm resize-none outline-none border border-white/10 focus:border-[#F5C400]/50"
               rows={3}
             />
