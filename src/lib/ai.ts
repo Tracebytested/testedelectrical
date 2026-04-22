@@ -1,11 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { BUSINESS } from './constants'
+import { BUSINESS, AGENT } from './constants'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 })
 
-// Extract work order info from an email/PDF text
+const BEEZY_SYSTEM = `${AGENT.personality}
+
+Business: ${BUSINESS.name} | ABN: ${BUSINESS.abn} | REC: ${BUSINESS.rec} | Licence: ${BUSINESS.licence}
+Technician: ${BUSINESS.technician} | Phone: ${BUSINESS.phone} | Email: ${BUSINESS.email}`
+
 export async function extractWorkOrderFromEmail(emailText: string, pdfText?: string): Promise<{
   client: string
   contact_name?: string
@@ -60,7 +64,6 @@ ${content}`
   }
 }
 
-// Generate a service report from Nathan's verbal description
 export async function generateReportFromDescription(input: {
   nathanDescription: string
   jobTitle: string
@@ -81,29 +84,26 @@ export async function generateReportFromDescription(input: {
     max_tokens: 1500,
     messages: [{
       role: 'user',
-      content: `You are the admin assistant for ${BUSINESS.name}, an electrical contractor.
+      content: `You are ${AGENT.name}, admin assistant for ${BUSINESS.name}.
 
-Nathan (the electrician) has described a completed job. Write a professional service report.
+Nathan described a completed job. Write a professional service report.
 
-Job details:
-- Job title: ${input.jobTitle}
-- Client: ${input.client}
-- Site: ${input.siteAddress}
-- Work order ref: ${input.workOrderRef || 'N/A'}
+Job: ${input.jobTitle}
+Client: ${input.client}
+Site: ${input.siteAddress}
+Work order ref: ${input.workOrderRef || 'N/A'}
 
-Nathan's description of what happened:
-"${input.nathanDescription}"
+Nathan's description: "${input.nathanDescription}"
 
-Generate a professional service report. Return ONLY valid JSON with these fields:
-- title (professional report title based on the job)
-- task_information (formal description of the task/scope of work, 1-2 sentences)
-- investigation_findings (what was found/diagnosed, written professionally)
-- work_undertaken (what was actually done, step by step in past tense, professional tone)
-- remedial_action (summary of rectification performed)
-- recommended_followup (any recommendations for future work, or "No further action required" if none)
-- price_ex_gst (extract dollar amount if mentioned, otherwise 0)
+Return ONLY valid JSON:
+- title (professional report title)
+- task_information (formal scope, 1-2 sentences)
+- investigation_findings (what was found, professional tone)
+- work_undertaken (what was done, step by step, past tense)
+- remedial_action (summary of rectification)
+- recommended_followup (future recommendations or "No further action required")
+- price_ex_gst (dollar amount if mentioned, otherwise 0)
 
-Write in formal electrical contractor report style. Be specific and professional.
 Return ONLY valid JSON, no other text.`
     }]
   })
@@ -125,7 +125,6 @@ Return ONLY valid JSON, no other text.`
   }
 }
 
-// Generate a quote from a job description
 export async function generateQuoteItems(jobDescription: string): Promise<Array<{
   description: string
   qty: number
@@ -136,23 +135,23 @@ export async function generateQuoteItems(jobDescription: string): Promise<Array<
     max_tokens: 1000,
     messages: [{
       role: 'user',
-      content: `You are the admin assistant for ${BUSINESS.name}, an electrical contractor in Victoria, Australia.
+      content: `You are ${AGENT.name}, admin assistant for ${BUSINESS.name}, electrical contractor in Victoria, Australia.
 
-Generate quote line items for the following job. Use realistic Australian electrical contractor pricing (2025 rates).
+Generate quote line items for this job. Use realistic 2025 Australian electrical contractor pricing.
 
-Job description: "${jobDescription}"
+Job: "${jobDescription}"
 
-Standard rates for reference:
+Standard rates:
 - Call out fee: $160 inc GST
 - Labour per hour: $120-150 ex GST
-- Common items: supply & install GPO $180, supply & install light $150-250, switchboard work $200-400/circuit
+- Supply & install GPO: $180, light fitting: $150-250, switchboard work: $200-400/circuit
 
-Return ONLY a JSON array of line items with these fields:
+Return ONLY a JSON array:
 - description (clear item description)
-- qty (quantity as number)
-- rate (rate per item in dollars ex GST, as number)
+- qty (number)
+- rate (ex GST dollars, number)
 
-Return ONLY valid JSON array, no other text. Maximum 6 line items.`
+Max 6 items. Return ONLY valid JSON array.`
     }]
   })
 
@@ -165,7 +164,6 @@ Return ONLY valid JSON array, no other text. Maximum 6 line items.`
   }
 }
 
-// Generate a professional email reply to a client/agency
 export async function generateEmailReply(context: {
   originalEmail: string
   purpose: 'acknowledge_work_order' | 'send_quote' | 'send_invoice' | 'send_report' | 'general'
@@ -174,10 +172,10 @@ export async function generateEmailReply(context: {
   additionalInfo?: string
 }): Promise<string> {
   const purposes: Record<string, string> = {
-    acknowledge_work_order: 'Acknowledge receipt of work order and confirm you will attend',
+    acknowledge_work_order: 'Acknowledge receipt of work order and confirm attendance',
     send_quote: 'Send a quote for the requested work',
     send_invoice: 'Send an invoice for completed work',
-    send_report: 'Send a completed service/job report',
+    send_report: 'Send a completed service report',
     general: 'Reply professionally to the email'
   }
 
@@ -186,26 +184,24 @@ export async function generateEmailReply(context: {
     max_tokens: 600,
     messages: [{
       role: 'user',
-      content: `Write a professional email body for ${BUSINESS.name} (electrical contractor).
+      content: `Write a professional email body for ${BUSINESS.name}.
 
 Purpose: ${purposes[context.purpose]}
 Client: ${context.clientName}
 ${context.jobTitle ? `Job: ${context.jobTitle}` : ''}
 ${context.additionalInfo ? `Additional context: ${context.additionalInfo}` : ''}
 
-Original email:
-${context.originalEmail.substring(0, 500)}
+Original email: ${context.originalEmail.substring(0, 500)}
 
-Write a brief, professional email body only (no subject line, no "Dear" header needed - just the body paragraphs). 
-Sign off with: Nathan | ${BUSINESS.phone} | ${BUSINESS.name}
-Keep it concise and professional. Australian business tone.`
+Write brief professional email body only (no subject line needed).
+Sign off: Nathan | ${BUSINESS.phone} | ${BUSINESS.name}
+Australian business tone. Keep it concise.`
     }]
   })
 
   return response.content[0].type === 'text' ? response.content[0].text : ''
 }
 
-// Process an inbound SMS from Nathan describing a completed job
 export async function processJobUpdateSMS(smsText: string, jobContext?: {
   title: string
   client: string
@@ -219,24 +215,25 @@ export async function processJobUpdateSMS(smsText: string, jobContext?: {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
     max_tokens: 800,
+    system: BEEZY_SYSTEM,
     messages: [{
       role: 'user',
-      content: `You are the AI admin assistant for ${BUSINESS.name}. Nathan has sent you an SMS after completing a job.
+      content: `Nathan has sent an SMS. He may address you as Beezy.
 
 ${jobContext ? `Current job context:
 - Title: ${jobContext.title}
 - Client: ${jobContext.client}
 - Site: ${jobContext.site}
-- Work order: ${jobContext.workOrderRef || 'N/A'}` : ''}
+- Work order: ${jobContext.workOrderRef || 'N/A'}` : 'No current job context.'}
 
 Nathan's SMS: "${smsText}"
 
-Determine what Nathan needs and return ONLY valid JSON:
-- action: one of "generate_report" (if describing completed work), "update_job" (status update only), "question" (if Nathan is asking something), "unknown"
-- response: A brief SMS reply to Nathan (max 160 chars) confirming what you're doing
-- summary: If action is generate_report, brief summary of what was done (for context)
+Determine what Nathan needs. Return ONLY valid JSON:
+- action: "generate_report" (if describing completed work or asking to invoice/report), "update_job" (status update only), "question" (if asking something), "unknown"
+- response: Brief SMS reply from Beezy to Nathan (max 160 chars, friendly and practical)
+- summary: If generate_report, brief summary of what was done
 
-Return ONLY valid JSON, no other text.`
+Return ONLY valid JSON.`
     }]
   })
 
@@ -247,7 +244,42 @@ Return ONLY valid JSON, no other text.`
   } catch {
     return {
       action: 'unknown',
-      response: "Got your message Nathan. I couldn't process it automatically - please check the dashboard."
+      response: "Hey Nathan, got your message but couldn't process it automatically — check the dashboard."
     }
+  }
+}
+
+export async function processCreateWorkOrderSMS(smsText: string): Promise<{
+  title: string
+  client: string
+  site_address: string
+  description: string
+} | null> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-5',
+    max_tokens: 500,
+    system: BEEZY_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: `Nathan wants to create a work order from this SMS: "${smsText}"
+
+Extract the job details and return ONLY valid JSON:
+- title (brief job title)
+- client (client name if mentioned, otherwise "TBC")
+- site_address (address if mentioned, otherwise "TBC")
+- description (full description of work needed)
+
+If this doesn't sound like a work order creation request, return null.
+Return ONLY valid JSON or the word null.`
+    }]
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text.trim() : 'null'
+  if (text === 'null' || text === '') return null
+  try {
+    const clean = text.replace(/```json|```/g, '').trim()
+    return JSON.parse(clean)
+  } catch {
+    return null
   }
 }
