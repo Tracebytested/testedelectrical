@@ -181,7 +181,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: any) {
     console.error('SMS webhook error:', error)
-    try { await sendSMS(String(formData?.get?.('From') || '+61407180596'), '⚠️ Something went wrong. Check the dashboard.') } catch {}
+    try { await sendSMS('+61407180596', '⚠️ Something went wrong. Check the dashboard.') } catch {}
     return new NextResponse('<?xml version="1.0"?><Response></Response>', {
       headers: { 'Content-Type': 'text/xml' }
     })
