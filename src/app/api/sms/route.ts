@@ -174,7 +174,7 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
 
     await sendEmail({
       to: clientEmail,
-      subject: `Service Report & Invoice — ${reportData.title} — ${reportNumber}`,
+      subject: `Service Report & Invoice - ${reportData.title} - ${reportNumber}`,
       body: buildEmailHTML(`
         <p>Hi ${job.agency_contact || job.client_name},</p>
         <p>Please find attached the completed service report and invoice for the following works:</p>
