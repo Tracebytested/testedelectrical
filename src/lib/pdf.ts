@@ -188,8 +188,14 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     // Totals
     const afterTotals = addTotalsRow(doc, afterTable, data.subtotal, data.gst, data.total)
 
-    // Payment info
+    // Payment info - check if enough space, add new page if needed
+    // Payment section needs ~180px, footer needs 60px
+    const paymentHeight = 185
     let py = afterTotals + 20
+    if (py + paymentHeight > doc.page.height - 80) {
+      doc.addPage()
+      py = 40
+    }
     doc.fontSize(9).font('Helvetica-Bold').fillColor('#1a1a1a').text('PAYMENT INFORMATION', 40, py)
     py += 12
     doc.fontSize(8).font('Helvetica').fillColor('#1a1a1a')
@@ -213,12 +219,14 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     py += 11
     doc.fillColor('#1a56db').text(BUSINESS.terms_url, 40, py)
 
-    // Footer
-    const footerY = doc.page.height - 60
+    // Footer - on same page as payment info
+    py += 20
+    doc.moveTo(40, py).lineTo(555, py).strokeColor('#e5e7eb').lineWidth(0.5).stroke()
+    py += 10
     doc.fontSize(8).font('Helvetica').fillColor('#1a1a1a')
-      .text(`If you have any questions about this invoice, please contact`, 40, footerY, { align: 'center', width: 515 })
-    doc.text(`Nathan – ${BUSINESS.phone} - ${BUSINESS.email}`, 40, footerY + 12, { align: 'center', width: 515 })
-    doc.text(`REC: ${BUSINESS.rec}`, 40, footerY + 24, { align: 'center', width: 515 })
+      .text(`If you have any questions about this invoice, please contact`, 40, py, { align: 'center', width: 515 })
+    doc.text(`Nathan – ${BUSINESS.phone} - ${BUSINESS.email}`, 40, py + 12, { align: 'center', width: 515 })
+    doc.text(`REC: ${BUSINESS.rec}`, 40, py + 24, { align: 'center', width: 515 })
 
     doc.end()
   })
