@@ -69,7 +69,7 @@ async function findJob(body: string): Promise<any | null> {
   if (jobRefMatch) {
     const ref = jobRefMatch[1]
     const result = await query(
-      `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
+      `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
        FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
        WHERE j.job_number ILIKE $1 OR j.work_order_ref ILIKE $1 LIMIT 1`,
       [`%${ref}%`]
@@ -82,7 +82,7 @@ async function findJob(body: string): Promise<any | null> {
   if (addressMatch) {
     const addressFragment = addressMatch[1].trim().replace(/,$/, '')
     const result = await query(
-      `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
+      `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
        FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
        WHERE j.site_address ILIKE $1
        AND j.status IN ('pending', 'active')
@@ -94,7 +94,7 @@ async function findJob(body: string): Promise<any | null> {
 
   // Fall back to most recent active/pending job
   const result = await query(
-    `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
+    `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
      FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
      WHERE j.status IN ('pending', 'active')
      ORDER BY j.created_at DESC LIMIT 1`
