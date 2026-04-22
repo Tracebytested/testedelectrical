@@ -119,7 +119,7 @@ export async function PUT(req: NextRequest) {
     if (r.client_email) {
       await sendEmail({
         to: r.client_email,
-        subject: `Service Report ${r.report_number} — ${r.title}`,
+        subject: `Service Report ${r.report_number} - ${r.title}`,
         body: buildEmailHTML(`
           <p>Hi ${r.agency_contact || r.client_name},</p>
           <p>Please find the completed service report attached for the following works:</p>
