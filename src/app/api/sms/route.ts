@@ -1,23 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { processJobUpdateSMS, generateReportFromDescription } from '@/lib/ai'
-import { sendNathanSMS } from '@/lib/sms'
+import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
+import { sendNathanSMS, sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
 import { sendEmail, buildEmailHTML } from '@/lib/gmail'
 import { query } from '@/lib/db'
 import {
   getNextReportNumber,
   getNextInvoiceNumber,
+  getNextJobNumber,
   calculateLineItems,
   formatDate,
-  formatDateLong
+  formatDateLong,
+  findOrCreateClient
 } from '@/lib/utils'
 import { BUSINESS } from '@/lib/constants'
 
-// Authorised phone numbers that can control the system via SMS
 const AUTHORISED_NUMBERS = [
   '+61407180596', // Nathan
   '+61429604291', // Second authorised number
 ]
+
+// Always reply to whoever sent the message
+async function replyTo(from: string, message: string) {
+  await sendSMS(from, message)
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,6 +44,33 @@ export async function POST(req: NextRequest) {
       ['inbound', from, process.env.TWILIO_PHONE_NUMBER, body]
     )
 
+    const bodyLower = body.toLowerCase()
+
+    // Check if this is a create work order request
+    const isCreateRequest = bodyLower.includes('create') || bodyLower.includes('new job') ||
+      bodyLower.includes('new work order') || bodyLower.includes('add job') ||
+      bodyLower.includes('work order for')
+
+    if (isCreateRequest) {
+      const workOrderData = await processCreateWorkOrderSMS(body)
+      if (workOrderData) {
+        const clientId = await findOrCreateClient({
+          name: workOrderData.client,
+          is_agency: false
+        })
+        const jobNumber = await getNextJobNumber()
+        await query(
+          `INSERT INTO jobs (job_number, client_id, title, description, site_address, status, source)
+           VALUES ($1, $2, $3, $4, $5, 'pending', 'sms') RETURNING id`,
+          [jobNumber, clientId, workOrderData.title, workOrderData.description, workOrderData.site_address]
+        )
+        await replyTo(from, `✅ Work order ${jobNumber} created!\n"${workOrderData.title}"\nClient: ${workOrderData.client}\nSite: ${workOrderData.site_address}\n\nCheck your dashboard.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', {
+          headers: { 'Content-Type': 'text/xml' }
+        })
+      }
+    }
+
     // Try to find referenced job
     const jobRefMatch = body.match(/([JW]O?[-#]?\d{3,6})/i)
     let job = null
@@ -47,171 +80,100 @@ export async function POST(req: NextRequest) {
       const ref = jobRefMatch[1]
       const jobResult = await query(
         `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
-         FROM jobs j
-         LEFT JOIN clients c ON j.client_id = c.id
-         WHERE j.job_number ILIKE $1 OR j.work_order_ref ILIKE $1
-         LIMIT 1`,
+         FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
+         WHERE j.job_number ILIKE $1 OR j.work_order_ref ILIKE $1 LIMIT 1`,
         [`%${ref}%`]
       )
-      if (jobResult.rows.length > 0) {
-        job = jobResult.rows[0]
-        jobId = job.id
-      }
+      if (jobResult.rows.length > 0) { job = jobResult.rows[0]; jobId = job.id }
     }
 
-    // If no job ref, get the most recent active/pending job
     if (!job) {
       const recentJob = await query(
         `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
-         FROM jobs j
-         LEFT JOIN clients c ON j.client_id = c.id
-         WHERE j.status IN ('pending', 'active')
-         ORDER BY j.created_at DESC LIMIT 1`
+         FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
+         WHERE j.status IN ('pending', 'active') ORDER BY j.created_at DESC LIMIT 1`
       )
-      if (recentJob.rows.length > 0) {
-        job = recentJob.rows[0]
-        jobId = job.id
-      }
+      if (recentJob.rows.length > 0) { job = recentJob.rows[0]; jobId = job.id }
     }
 
-    // Process the SMS with AI
     const aiResponse = await processJobUpdateSMS(body, job ? {
-      title: job.title,
-      client: job.client_name,
-      site: job.site_address,
-      workOrderRef: job.work_order_ref
+      title: job.title, client: job.client_name,
+      site: job.site_address, workOrderRef: job.work_order_ref
     } : undefined)
 
     if (aiResponse.action === 'generate_report' && job) {
-      // Generate the full report
       const reportData = await generateReportFromDescription({
-        nathanDescription: body,
-        jobTitle: job.title,
-        client: job.client_name,
-        siteAddress: job.site_address,
+        nathanDescription: body, jobTitle: job.title,
+        client: job.client_name, siteAddress: job.site_address,
         workOrderRef: job.work_order_ref
       })
 
       const reportNumber = await getNextReportNumber()
       const today = new Date()
 
-      // Save report to DB
       await query(
         `INSERT INTO reports (report_number, job_id, client_id, title, task_information,
          investigation_findings, work_undertaken, remedial_action, recommended_followup,
-         price_ex_gst, conducted_date, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft')`,
-        [
-          reportNumber, jobId, job.client_id, reportData.title,
-          reportData.task_information, reportData.investigation_findings,
-          reportData.work_undertaken, reportData.remedial_action,
-          reportData.recommended_followup, reportData.price_ex_gst,
-          today
-        ]
+         price_ex_gst, conducted_date, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft')`,
+        [reportNumber, jobId, job.client_id, reportData.title, reportData.task_information,
+         reportData.investigation_findings, reportData.work_undertaken, reportData.remedial_action,
+         reportData.recommended_followup, reportData.price_ex_gst, today]
       )
 
-      // Generate report PDF
       const reportPDF = await generateReportPDF({
-        report_number: reportNumber,
-        conducted_on: formatDateLong(today),
-        title: reportData.title,
-        status: 'Completed',
-        site_location: job.site_address,
-        work_order: job.work_order_ref || job.job_number,
-        client: job.client_name,
-        contact: job.agency_contact || '',
-        date_completed: formatDate(today),
-        task_information: reportData.task_information,
-        investigation_findings: reportData.investigation_findings,
-        work_undertaken: reportData.work_undertaken,
-        remedial_action: reportData.remedial_action,
-        recommended_followup: reportData.recommended_followup,
-        price_ex_gst: reportData.price_ex_gst
+        report_number: reportNumber, conducted_on: formatDateLong(today),
+        title: reportData.title, status: 'Completed', site_location: job.site_address,
+        work_order: job.work_order_ref || job.job_number, client: job.client_name,
+        contact: job.agency_contact || '', date_completed: formatDate(today),
+        task_information: reportData.task_information, investigation_findings: reportData.investigation_findings,
+        work_undertaken: reportData.work_undertaken, remedial_action: reportData.remedial_action,
+        recommended_followup: reportData.recommended_followup, price_ex_gst: reportData.price_ex_gst
       })
 
-      // Generate invoice
       const invoiceNumber = await getNextInvoiceNumber()
       const lineItems = reportData.price_ex_gst > 0
         ? [{ description: reportData.title, qty: 1, rate: reportData.price_ex_gst }]
         : [{ description: job.title, qty: 1, rate: 0 }]
-
       const { lineItems: calcItems, subtotal, gst, total } = calculateLineItems(lineItems)
 
       await query(
         `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8)`,
-        [
-          invoiceNumber, jobId, job.client_id,
-          JSON.stringify(calcItems), subtotal, gst, total,
-          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        ]
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
+        [invoiceNumber, jobId, job.client_id, JSON.stringify(calcItems), subtotal, gst, total,
+         new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
       )
 
       const invoicePDF = await generateInvoicePDF({
-        invoice_number: invoiceNumber,
-        date: formatDate(today),
-        bill_to_name: job.client_name,
-        bill_to_address: job.site_address,
-        line_items: calcItems,
-        subtotal,
-        gst,
-        total
+        invoice_number: invoiceNumber, date: formatDate(today),
+        bill_to_name: job.client_name, bill_to_address: job.site_address,
+        line_items: calcItems, subtotal, gst, total
       })
 
-      // Update job status
-      await query(
-        "UPDATE jobs SET status = 'completed', completed_date = $1, updated_at = NOW() WHERE id = $2",
-        [today, jobId]
-      )
+      await query("UPDATE jobs SET status='completed', completed_date=$1, updated_at=NOW() WHERE id=$2", [today, jobId])
 
-      // Send report + invoice to client/agency
       if (job.client_email) {
-        const emailBody = buildEmailHTML(`
-          <p>Hi ${job.agency_contact || job.client_name},</p>
-          <p>Please find attached the completed service report and invoice for the following job:</p>
-          <p><strong>${reportData.title}</strong><br>
-          Site: ${job.site_address}<br>
-          Work Order: ${job.work_order_ref || job.job_number}</p>
-          <p>Please don't hesitate to contact us if you have any questions.</p>
-          <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
-        `)
-
         await sendEmail({
           to: job.client_email,
           subject: `Service Report & Invoice — ${reportData.title} — ${reportNumber}`,
-          body: emailBody,
+          body: buildEmailHTML(`
+            <p>Hi ${job.agency_contact || job.client_name},</p>
+            <p>Please find attached the completed service report and invoice.</p>
+            <p><strong>${reportData.title}</strong><br>Site: ${job.site_address}</p>
+            <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
+          `),
           attachments: [
-            {
-              filename: `${reportNumber}_Service_Report.pdf`,
-              content: reportPDF,
-              contentType: 'application/pdf'
-            },
-            {
-              filename: `Invoice_${invoiceNumber}.pdf`,
-              content: invoicePDF,
-              contentType: 'application/pdf'
-            }
+            { filename: `${reportNumber}_Service_Report.pdf`, content: reportPDF, contentType: 'application/pdf' },
+            { filename: `Invoice_${invoiceNumber}.pdf`, content: invoicePDF, contentType: 'application/pdf' }
           ]
         })
-
-        await query(
-          "UPDATE reports SET status = 'sent', sent_at = NOW() WHERE report_number = $1",
-          [reportNumber]
-        )
-        await query(
-          "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE invoice_number = $1",
-          [invoiceNumber]
-        )
+        await query("UPDATE reports SET status='sent', sent_at=NOW() WHERE report_number=$1", [reportNumber])
+        await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
       }
 
-      // Reply to sender
-      const clientEmail = job.client_email
-      await sendNathanSMS(
-        `✅ Done! Report ${reportNumber} + Invoice ${invoiceNumber} ($${total.toFixed(2)}) ${clientEmail ? `sent to ${job.client_email}` : 'saved as draft (no email on file)'}.`
-      )
+      await replyTo(from, `✅ Done! Report ${reportNumber} + Invoice ${invoiceNumber} ($${total.toFixed(2)}) ${job.client_email ? `sent to ${job.client_email}` : 'saved as draft (no email on file)'}.`)
 
     } else {
-      await sendNathanSMS(aiResponse.response || "Got it! Check the dashboard for details.")
+      await replyTo(from, aiResponse.response || "Got it! Check the dashboard.")
     }
 
     return new NextResponse('<?xml version="1.0"?><Response></Response>', {
@@ -219,7 +181,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: any) {
     console.error('SMS webhook error:', error)
-    await sendNathanSMS('⚠️ Something went wrong processing your message. Check the dashboard.')
+    try { await sendSMS(String(formData?.get?.('From') || '+61407180596'), '⚠️ Something went wrong. Check the dashboard.') } catch {}
     return new NextResponse('<?xml version="1.0"?><Response></Response>', {
       headers: { 'Content-Type': 'text/xml' }
     })
