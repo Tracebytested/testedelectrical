@@ -13,14 +13,20 @@ import {
 } from '@/lib/utils'
 import { BUSINESS } from '@/lib/constants'
 
+// Authorised phone numbers that can control the system via SMS
+const AUTHORISED_NUMBERS = [
+  '+61407180596', // Nathan
+  '+61429604291', // Second authorised number
+]
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const body = formData.get('Body') as string
     const from = formData.get('From') as string
 
-    // Only accept SMS from Nathan
-    if (from !== BUSINESS.phone_e164) {
+    // Only accept SMS from authorised numbers
+    if (!AUTHORISED_NUMBERS.includes(from)) {
       return new NextResponse('<?xml version="1.0"?><Response></Response>', {
         headers: { 'Content-Type': 'text/xml' }
       })
@@ -53,10 +59,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If no job ref, get the most recent active job
+    // If no job ref, get the most recent active/pending job
     if (!job) {
       const recentJob = await query(
-        `SELECT j.*, c.name as client_name, c.email as client_email
+        `SELECT j.*, c.name as client_name, c.email as client_email, c.contact as agency_contact
          FROM jobs j
          LEFT JOIN clients c ON j.client_id = c.id
          WHERE j.status IN ('pending', 'active')
@@ -198,14 +204,13 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      // Reply to Nathan
+      // Reply to sender
       const clientEmail = job.client_email
       await sendNathanSMS(
         `✅ Done! Report ${reportNumber} + Invoice ${invoiceNumber} ($${total.toFixed(2)}) ${clientEmail ? `sent to ${job.client_email}` : 'saved as draft (no email on file)'}.`
       )
 
     } else {
-      // Just reply with AI response
       await sendNathanSMS(aiResponse.response || "Got it! Check the dashboard for details.")
     }
 
