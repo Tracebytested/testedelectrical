@@ -11,12 +11,28 @@ export default function JobDetailPage() {
   const [description, setDescription] = useState('')
   const [working, setWorking] = useState(false)
   const [message, setMessage] = useState('')
+  const [relatedDocs, setRelatedDocs] = useState<{ reports: any[], invoices: any[], quotes: any[] }>({ reports: [], invoices: [], quotes: [] })
 
   useEffect(() => {
-    fetch(`/api/jobs?id=${id}`).then(r => r.json()).then(data => {
+    fetch(`/api/jobs`).then(r => r.json()).then(data => {
       const jobs = Array.isArray(data) ? data : []
-      setJob(jobs.find((j: any) => j.id === parseInt(id as string)) || null)
+      const found = jobs.find((j: any) => j.id === parseInt(id as string))
+      setJob(found || null)
       setLoading(false)
+    })
+
+    // Load related docs
+    Promise.all([
+      fetch('/api/reports').then(r => r.json()),
+      fetch('/api/invoices').then(r => r.json()),
+      fetch('/api/quotes').then(r => r.json())
+    ]).then(([reports, invoices, quotes]) => {
+      const jobId = parseInt(id as string)
+      setRelatedDocs({
+        reports: (Array.isArray(reports) ? reports : []).filter((r: any) => r.job_id === jobId),
+        invoices: (Array.isArray(invoices) ? invoices : []).filter((i: any) => i.job_id === jobId),
+        quotes: (Array.isArray(quotes) ? quotes : []).filter((q: any) => q.job_id === jobId),
+      })
     })
   }, [id])
 
@@ -33,75 +49,54 @@ export default function JobDetailPage() {
     if (!description.trim()) return
     setWorking(true)
     setMessage('')
-
     try {
       if (action === 'quote') {
         const res = await fetch('/api/quotes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            job_id: job.id,
-            client_id: job.client_id,
-            description,
-            generate_from_description: true
-          })
+          body: JSON.stringify({ job_id: job.id, client_id: job.client_id, description, generate_from_description: true })
         })
         const q = await res.json()
-        // Auto-send
-        await fetch('/api/quotes', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quote_id: q.id })
-        })
+        await fetch('/api/quotes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quote_id: q.id }) })
         setMessage(`✅ Quote ${q.quote_number} generated and sent!`)
       }
-
       if (action === 'report') {
         const res = await fetch('/api/reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            job_id: job.id,
-            client_id: job.client_id,
-            description,
-            generate_from_description: true
-          })
+          body: JSON.stringify({ job_id: job.id, client_id: job.client_id, description, generate_from_description: true })
         })
         const r = await res.json()
-        await fetch('/api/reports', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ report_id: r.id })
-        })
+        await fetch('/api/reports', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ report_id: r.id }) })
         setMessage(`✅ Report ${r.report_number} generated and sent!`)
         updateStatus('completed')
       }
-
       if (action === 'invoice') {
-        const lineItems = [{ description: job.title, qty: 1, rate: 0 }]
         const res = await fetch('/api/invoices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            job_id: job.id,
-            client_id: job.client_id,
-            description,
-            generate_from_description: true
-          })
+          body: JSON.stringify({ job_id: job.id, client_id: job.client_id, description, generate_from_description: true })
         })
         const inv = await res.json()
-        await fetch('/api/invoices', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoice_id: inv.id })
-        })
+        await fetch('/api/invoices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice_id: inv.id }) })
         setMessage(`✅ Invoice ${inv.invoice_number} generated and sent!`)
         updateStatus('invoiced')
       }
-
+      // Reload related docs
+      const [reports, invoices, quotes] = await Promise.all([
+        fetch('/api/reports').then(r => r.json()),
+        fetch('/api/invoices').then(r => r.json()),
+        fetch('/api/quotes').then(r => r.json())
+      ])
+      const jobId = parseInt(id as string)
+      setRelatedDocs({
+        reports: (Array.isArray(reports) ? reports : []).filter((r: any) => r.job_id === jobId),
+        invoices: (Array.isArray(invoices) ? invoices : []).filter((i: any) => i.job_id === jobId),
+        quotes: (Array.isArray(quotes) ? quotes : []).filter((q: any) => q.job_id === jobId),
+      })
       setAction(null)
       setDescription('')
-    } catch (err) {
+    } catch {
       setMessage('Something went wrong. Try again.')
     }
     setWorking(false)
@@ -117,11 +112,13 @@ export default function JobDetailPage() {
     invoiced: 'bg-green-100 text-green-800',
   }
 
+  const hasReport = relatedDocs.reports.length > 0
+  const hasInvoice = relatedDocs.invoices.length > 0
+  const hasQuote = relatedDocs.quotes.length > 0
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1">
-        ← Back
-      </button>
+      <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1">← Back</button>
 
       {/* Job header */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-4">
@@ -138,26 +135,12 @@ export default function JobDetailPage() {
             {job.status}
           </span>
         </div>
-
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-xs text-gray-400 mb-0.5">Site address</div>
-            <div className="text-gray-700">{job.site_address || '—'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-0.5">Agency contact</div>
-            <div className="text-gray-700">{job.agency_contact || '—'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-0.5">Source</div>
-            <div className="text-gray-700 capitalize">{job.source || '—'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-0.5">Created</div>
-            <div className="text-gray-700">{new Date(job.created_at).toLocaleDateString('en-AU')}</div>
-          </div>
+          <div><div className="text-xs text-gray-400 mb-0.5">Site address</div><div className="text-gray-700">{job.site_address || '—'}</div></div>
+          <div><div className="text-xs text-gray-400 mb-0.5">Agency contact</div><div className="text-gray-700">{job.agency_contact || '—'}</div></div>
+          <div><div className="text-xs text-gray-400 mb-0.5">Source</div><div className="text-gray-700 capitalize">{job.source || '—'}</div></div>
+          <div><div className="text-xs text-gray-400 mb-0.5">Created</div><div className="text-gray-700">{new Date(job.created_at).toLocaleDateString('en-AU')}</div></div>
         </div>
-
         {job.description && (
           <div className="mt-4 pt-4 border-t border-gray-100">
             <div className="text-xs text-gray-400 mb-1">Description</div>
@@ -169,63 +152,74 @@ export default function JobDetailPage() {
       {/* Status buttons */}
       <div className="flex gap-2 mb-4">
         {['pending', 'active', 'completed', 'invoiced'].map(s => (
-          <button
-            key={s}
-            onClick={() => updateStatus(s)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
-              job.status === s ? 'bg-[#1a1a1a] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}
-          >
+          <button key={s} onClick={() => updateStatus(s)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${job.status === s ? 'bg-[#1a1a1a] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
             {s}
           </button>
         ))}
       </div>
 
-      {/* Action buttons */}
       {message && (
-        <div className="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-xl px-4 py-3 text-sm">
-          {message}
+        <div className="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-xl px-4 py-3 text-sm">{message}</div>
+      )}
+
+      {/* Existing documents */}
+      {(hasReport || hasInvoice || hasQuote) && (
+        <div className="mb-4 space-y-3">
+          {relatedDocs.reports.map(r => (
+            <DocCard key={r.id} type="Report" number={r.report_number} title={r.title}
+              status={r.status} date={r.created_at} price={r.price_ex_gst}
+              onResend={async () => {
+                await fetch('/api/reports', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ report_id: r.id }) })
+                setMessage(`✅ Report ${r.report_number} resent!`)
+              }}
+            />
+          ))}
+          {relatedDocs.invoices.map(i => (
+            <DocCard key={i.id} type="Invoice" number={i.invoice_number} title={i.job_title}
+              status={i.status} date={i.created_at} price={i.total}
+              onResend={async () => {
+                await fetch('/api/invoices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice_id: i.id }) })
+                setMessage(`✅ Invoice ${i.invoice_number} resent!`)
+              }}
+            />
+          ))}
+          {relatedDocs.quotes.map(q => (
+            <DocCard key={q.id} type="Quote" number={q.quote_number} title={q.job_title}
+              status={q.status} date={q.created_at} price={q.total}
+              onResend={async () => {
+                await fetch('/api/quotes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quote_id: q.id }) })
+                setMessage(`✅ Quote ${q.quote_number} resent!`)
+              }}
+            />
+          ))}
         </div>
       )}
 
+      {/* Generate new docs */}
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <ActionBtn label="📋 Generate Quote" onClick={() => setAction(action === 'quote' ? null : 'quote')} active={action === 'quote'} />
-        <ActionBtn label="📄 Generate Report" onClick={() => setAction(action === 'report' ? null : 'report')} active={action === 'report'} />
-        <ActionBtn label="💰 Generate Invoice" onClick={() => setAction(action === 'invoice' ? null : 'invoice')} active={action === 'invoice'} />
+        <ActionBtn label={hasQuote ? '📋 New Quote' : '📋 Generate Quote'} onClick={() => setAction(action === 'quote' ? null : 'quote')} active={action === 'quote'} />
+        <ActionBtn label={hasReport ? '📄 New Report' : '📄 Generate Report'} onClick={() => setAction(action === 'report' ? null : 'report')} active={action === 'report'} />
+        <ActionBtn label={hasInvoice ? '💰 New Invoice' : '💰 Generate Invoice'} onClick={() => setAction(action === 'invoice' ? null : 'invoice')} active={action === 'invoice'} />
       </div>
 
       {action && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <h3 className="font-semibold text-gray-900 mb-3 capitalize">
-            {action === 'quote' ? 'Describe the work to quote' :
-             action === 'report' ? 'Describe what was done' :
-             'Describe the work completed'}
+            {action === 'quote' ? 'Describe the work to quote' : action === 'report' ? 'Describe what was done' : 'Describe the work completed'}
           </h3>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder={
-              action === 'quote' ? 'e.g. Supply and install 2x emergency exit signs, run new circuit from switchboard...' :
-              action === 'report' ? 'e.g. Attended site, found faulty MCB on circuit 4, replaced with 20A breaker, tested all circuits, all good...' :
-              'e.g. Replaced 3x GPOs in kitchen, installed new light fitting in hallway, 2.5 hours labour...'
-            }
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-gray-400 transition-colors"
-            rows={5}
-          />
+          <textarea value={description} onChange={e => setDescription(e.target.value)}
+            placeholder={action === 'quote' ? 'e.g. Supply and install 2x emergency exit signs...' :
+              action === 'report' ? 'e.g. Attended site, found faulty MCB, replaced, tested...' :
+              'e.g. Replaced 3x GPOs, installed new light fitting, 2.5 hours...'}
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-gray-400 transition-colors" rows={5} />
           <div className="flex gap-3 mt-3">
-            <button
-              onClick={handleAction}
-              disabled={working || !description.trim()}
-              className="flex-1 bg-[#1a1a1a] text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors"
-            >
+            <button onClick={handleAction} disabled={working || !description.trim()}
+              className="flex-1 bg-[#1a1a1a] text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors">
               {working ? 'Generating & sending...' : `Generate ${action} & send`}
             </button>
-            <button
-              onClick={() => { setAction(null); setDescription('') }}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
+            <button onClick={() => { setAction(null); setDescription('') }}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
           </div>
         </div>
       )}
@@ -233,14 +227,47 @@ export default function JobDetailPage() {
   )
 }
 
+function DocCard({ type, number, title, status, date, price, onResend }: {
+  type: string; number: string; title: string; status: string;
+  date: string; price: any; onResend: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const icons: Record<string, string> = { Report: '📄', Invoice: '💰', Quote: '📋' }
+  const statusColour: Record<string, string> = {
+    draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-800',
+    paid: 'bg-green-100 text-green-800',
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm">{icons[type]}</span>
+            <span className="font-medium text-sm text-gray-900">{type} {number}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColour[status] || 'bg-gray-100 text-gray-700'}`}>{status}</span>
+          </div>
+          <p className="text-xs text-gray-500 truncate">{title}</p>
+          <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+            <span>{new Date(date).toLocaleDateString('en-AU')}</span>
+            {price && parseFloat(price) > 0 && <span className="font-medium text-gray-600">${parseFloat(price).toFixed(2)}</span>}
+          </div>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <button onClick={onResend}
+            className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+            Resend
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ActionBtn({ label, onClick, active }: { label: string; onClick: () => void; active: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      className={`py-3 rounded-xl text-sm font-medium transition-colors ${
-        active ? 'bg-[#1a1a1a] text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-      }`}
-    >
+    <button onClick={onClick}
+      className={`py-3 rounded-xl text-sm font-medium transition-colors ${active ? 'bg-[#1a1a1a] text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
       {label}
     </button>
   )
