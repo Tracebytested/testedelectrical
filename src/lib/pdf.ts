@@ -51,6 +51,7 @@ interface ReportData {
   remedial_action: string
   recommended_followup: string
   price_ex_gst: number
+  photos?: Buffer[]
 }
 
 function getLogoPath(): string | null {
@@ -430,6 +431,39 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
     doc.font('Helvetica').text(`SIGN-OFF DATE`, 40, y)
     y += 12
     doc.text(data.date_completed, 40, y)
+    y += 30
+
+    // Photos section
+    if (data.photos && data.photos.length > 0) {
+      if (y > doc.page.height - 100) { doc.addPage(); y = 40 }
+      doc.moveTo(40, y).lineTo(555, y).strokeColor('#e5e7eb').lineWidth(1).stroke()
+      y += 12
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#1a56db').text('SITE PHOTOS', 40, y)
+      y += 16
+
+      const photoWidth = 240
+      const photoHeight = 180
+      let col = 0
+
+      for (let i = 0; i < data.photos.length; i++) {
+        try {
+          const x = col === 0 ? 40 : 300
+          if (col === 0 && y + photoHeight > doc.page.height - 60) {
+            doc.addPage()
+            y = 40
+          }
+          doc.image(data.photos[i], x, y, { width: photoWidth, height: photoHeight, fit: [photoWidth, photoHeight] })
+          doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
+            .text('Photo ' + (i + 1), x, y + photoHeight + 3, { width: photoWidth, align: 'center' })
+          col++
+          if (col === 2) { col = 0; y += photoHeight + 20 }
+        } catch (photoErr) {
+          console.error('Photo embed error:', photoErr)
+        }
+      }
+      if (col === 1) { y += photoHeight + 20 }
+      y += 10
+    }
 
     // Page footer - add new page if not enough space
     if (y > doc.page.height - 50) { doc.addPage(); y = 40 }
