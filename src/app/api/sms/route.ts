@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
-import { findInspectionReport, downloadDriveFile } from '@/lib/drive'
+import { findInspectionReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
 import { createCalendarEvent, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
@@ -120,6 +120,21 @@ async function findJob(body: string): Promise<any | null> {
 }
 
 async function generateAndSendReportInvoice(job: any, body: string, from: string) {
+  // Fetch recent photos from Google Drive Work Images folder
+  let photos: Buffer[] = []
+  try {
+    const photoFiles = await getRecentJobPhotos(job.site_address)
+    if (photoFiles.length > 0) {
+      const photoBuffers = await Promise.all(
+        photoFiles.slice(0, 6).map((f: any) => downloadDriveFile(f.id).catch(() => null))
+      )
+      photos = photoBuffers.filter((b): b is Buffer => b !== null)
+      console.log('Found ' + photos.length + ' photos for report')
+    }
+  } catch (e) {
+    console.error('Photo fetch error:', e)
+  }
+
   const reportData = await generateReportFromDescription({
     nathanDescription: body,
     jobTitle: job.title,
@@ -146,7 +161,7 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
      reportData.recommended_followup, reportData.price_ex_gst, today]
   )
 
-  const reportPDF = await generateReportPDF({
+  const reportPDF = await generateReportPDF({ photos,
     report_number: reportNumber, conducted_on: formatDateLong(today),
     title: reportData.title, status: 'Completed',
     site_location: job.site_address, work_order: job.work_order_ref || job.job_number,
