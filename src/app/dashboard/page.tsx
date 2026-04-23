@@ -27,7 +27,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch('/api/dashboard')
+    fetch('/api/dashboard?t=' + Date.now())
       .then(r => r.json())
       .then(data => {
         if (data.error) {
