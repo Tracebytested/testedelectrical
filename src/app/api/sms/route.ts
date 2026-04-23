@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
+import { findInspectionReport, downloadDriveFile } from '@/lib/drive'
+import { createCalendarEvent, getUpcomingEvents, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
 import { sendEmail, buildEmailHTML } from '@/lib/gmail'
@@ -24,6 +26,18 @@ async function replyTo(from: string, message: string) {
   await sendSMS(from, message)
 }
 
+const DRIVE_KEYWORDS = [
+  'send the inspection', 'send inspection report', 'attach the report from drive',
+  'google drive', 'send the safety', 'attach inspection', 'send from drive',
+  'safety inspection report', 'send the certificate'
+]
+
+const CALENDAR_KEYWORDS = [
+  'book', 'schedule', 'add to calendar', 'put in calendar', 'book a job',
+  'schedule a job', 'add job to calendar', 'book for', 'schedule for',
+  'book the job', 'calendar', 'diary'
+]
+
 const COMPLETE_KEYWORDS = [
   'just finished', 'just done', 'completed', 'all done', 'job done',
   'finished the', 'done the', 'wrapped up', 'just completed',
@@ -39,10 +53,16 @@ const CREATE_KEYWORDS = [
   'new job for', 'create job', 'log a job', 'book a job'
 ]
 
-function detectIntent(text: string): 'complete' | 'create' | 'unknown' {
+function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar' | 'unknown' {
   const lower = text.toLowerCase()
   for (const kw of COMPLETE_KEYWORDS) {
     if (lower.includes(kw)) return 'complete'
+  }
+  for (const kw of DRIVE_KEYWORDS) {
+    if (lower.includes(kw)) return 'drive'
+  }
+  for (const kw of CALENDAR_KEYWORDS) {
+    if (lower.includes(kw)) return 'calendar'
   }
   for (const kw of CREATE_KEYWORDS) {
     if (lower.includes(kw)) return 'create'
@@ -60,6 +80,12 @@ function extractEmail(text: string): string | null {
 function extractPrice(text: string): number {
   const match = text.match(/\$(\d+(?:\.\d{2})?)/)
   return match ? parseFloat(match[1]) : 0
+}
+
+// Extract an address from free text
+function extractAddressFromText(text: string): string | null {
+  const match = text.match(/\d+\s+[A-Za-z\s]+(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent|Pl|Place)[,\s]+[A-Za-z]+/i)
+  return match ? match[0].trim() : null
 }
 
 // Find job by address keywords or job number
@@ -233,6 +259,112 @@ export async function POST(req: NextRequest) {
         await replyTo(from, `✅ Work order ${jobNumber} created!\n"${workOrderData.title}"\nClient: ${workOrderData.client}\nSite: ${workOrderData.site_address}`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
+    }
+
+    // DRIVE intent — find and send inspection report from Google Drive
+    if (intent === 'drive') {
+      const job = await findJob(body)
+      const address = job?.site_address || extractAddressFromText(body)
+      
+      if (!address) {
+        await replyTo(from, `Hey, I need an address to find the inspection report. Include the property address and try again.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
+      await replyTo(from, `Searching Google Drive for inspection report at ${address}... ⚡`)
+
+      const driveFile = await findInspectionReport(address)
+      if (!driveFile) {
+        await replyTo(from, `Couldn't find an inspection report for "${address}" in Google Drive. Check the file name includes the address.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
+      const fileBuffer = await downloadDriveFile(driveFile.id)
+      const clientEmail = extractEmail(body) || job?.client_email
+      const price = extractPrice(body)
+
+      if (clientEmail) {
+        // Generate invoice if price mentioned or job exists
+        let invoiceAttachment = null
+        let invoiceNumber = ''
+        
+        if (price > 0 && job) {
+          const invNum = await getNextInvoiceNumber()
+          invoiceNumber = invNum
+          const { lineItems, subtotal, gst, total } = calculateLineItems([
+            { description: `Safety Inspection - ${address}`, qty: 1, rate: price }
+          ])
+          await query(
+            `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
+            [invNum, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
+             new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+          )
+          const invPDF = await generateInvoicePDF({
+            invoice_number: invNum, date: formatDate(new Date()),
+            bill_to_name: job?.client_name || 'Client', bill_to_address: address,
+            line_items: lineItems, subtotal, gst, total
+          })
+          invoiceAttachment = { filename: \`Invoice_\${invNum}.pdf\`, content: invPDF, contentType: 'application/pdf' }
+          await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invNum])
+        }
+
+        const attachments: any[] = [
+          { filename: driveFile.name, content: fileBuffer, contentType: 'application/pdf' }
+        ]
+        if (invoiceAttachment) attachments.push(invoiceAttachment)
+
+        await sendEmail({
+          to: clientEmail,
+          subject: \`Safety Inspection Report - \${address}\`,
+          body: buildEmailHTML(\`
+            <p>Hi,</p>
+            <p>Please find attached the safety inspection report for \${address}.\${invoiceAttachment ? ' An invoice has also been included.' : ''}</p>
+            \${invoiceAttachment ? \`<p><strong>Invoice #\${invoiceNumber}</strong> — $\${(price * 1.1).toFixed(2)} inc GST — due within \${BUSINESS.payment_terms_days} days.</p>\` : ''}
+            <p>Nathan<br>\${BUSINESS.phone}<br>\${BUSINESS.name}</p>
+          \`),
+          attachments
+        })
+
+        await replyTo(from, \`✅ Sent "\${driveFile.name}" to \${clientEmail}\${invoiceAttachment ? \` + Invoice \${invoiceNumber} ($\${(price * 1.1).toFixed(2)} inc GST)\` : ''}.\`)
+      } else {
+        await replyTo(from, \`Found "\${driveFile.name}" but no email address. Reply with the client's email to send it.\`)
+      }
+
+      return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+    }
+
+    // CALENDAR intent — book a job in Google Calendar
+    if (intent === 'calendar') {
+      const booking = await parseBookingFromSMS(body)
+      if (!booking) {
+        await replyTo(from, `Hey, I need a date to book this. Try: "Book electrical inspection at 45 Brown St for Monday 28 April at 9am"`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
+      const job = await findJob(body)
+      const event = await createCalendarEvent({
+        title: booking.title,
+        description: booking.description,
+        location: booking.location || job?.site_address,
+        startDate: booking.date,
+        startTime: booking.time,
+        jobNumber: job?.job_number
+      })
+
+      if (event) {
+        // Update job scheduled date if found
+        if (job) {
+          await query("UPDATE jobs SET scheduled_date=$1, status='active', updated_at=NOW() WHERE id=$2",
+            [booking.date, job.id])
+        }
+        const dateFormatted = new Date(booking.date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
+        await replyTo(from, \`📅 Booked! "\${event.title}"\n\${dateFormatted}\${booking.time ? ' at ' + booking.time : ''}\n\${booking.location || ''}\nAdded to your Google Calendar.\`)
+      } else {
+        await replyTo(from, `Couldn't add to calendar — check Google Calendar API is enabled in Google Cloud Console.`)
+      }
+
+      return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
     // COMPLETE intent — find job and generate report + invoice
