@@ -22,3 +22,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+    if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
+
+    // Nullify client references before deleting
+    await query('UPDATE jobs SET client_id = NULL WHERE client_id = $1', [id])
+    await query('UPDATE invoices SET client_id = NULL WHERE client_id = $1', [id])
+    await query('UPDATE quotes SET client_id = NULL WHERE client_id = $1', [id])
+    await query('UPDATE reports SET client_id = NULL WHERE client_id = $1', [id])
+    await query('DELETE FROM clients WHERE id = $1', [id])
+
+    return NextResponse.json({ success: true })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
