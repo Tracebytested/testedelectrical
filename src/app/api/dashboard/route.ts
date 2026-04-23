@@ -40,13 +40,15 @@ export async function GET(req: NextRequest) {
       `).catch(() => ({ rows: [] })),
     ])
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       jobs: jobStats.rows[0],
       invoices: invoiceStats.rows[0],
       quotes: quoteStats.rows[0],
       recent_jobs: recentJobs.rows,
       recent_emails: []
     })
+    response.headers.set('Cache-Control', 'no-store')
+    return response
   } catch (error: any) {
     return NextResponse.json({
       jobs: { pending: '0', active: '0', completed: '0', invoiced: '0', total: '0' },
