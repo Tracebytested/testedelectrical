@@ -82,15 +82,30 @@ export default function ReportsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
-                    {r.status === 'draft' && (
-                      <button
-                        onClick={() => sendReport(r.id)}
-                        disabled={sending === r.id}
-                        className="text-xs bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-40"
-                      >
-                        {sending === r.id ? 'Sending...' : 'Send'}
-                      </button>
-                    )}
+                    <div className="flex gap-2">
+                      <a href={`/api/pdf?type=report&id=${r.id}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg hover:bg-gray-800">
+                        View
+                      </a>
+                      {r.status === 'draft' && (
+                        <button
+                          onClick={() => sendReport(r.id)}
+                          disabled={sending === r.id}
+                          className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-40"
+                        >
+                          {sending === r.id ? 'Sending...' : 'Send'}
+                        </button>
+                      )}
+                      {r.status === 'sent' && (
+                        <button
+                          onClick={() => sendReport(r.id)}
+                          disabled={sending === r.id}
+                          className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-40"
+                        >
+                          {sending === r.id ? 'Sending...' : 'Resend'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
