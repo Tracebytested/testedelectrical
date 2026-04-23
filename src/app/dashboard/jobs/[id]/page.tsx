@@ -168,7 +168,7 @@ export default function JobDetailPage() {
         <div className="mb-4 space-y-3">
           {relatedDocs.reports.map(r => (
             <DocCard key={r.id} type="Report" number={r.report_number} title={r.title}
-              status={r.status} date={r.created_at} price={r.price_ex_gst}
+              status={r.status} date={r.created_at} price={r.price_ex_gst} docId={r.id}
               onResend={async () => {
                 await fetch('/api/reports', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ report_id: r.id }) })
                 setMessage(`✅ Report ${r.report_number} resent!`)
@@ -177,7 +177,7 @@ export default function JobDetailPage() {
           ))}
           {relatedDocs.invoices.map(i => (
             <DocCard key={i.id} type="Invoice" number={i.invoice_number} title={i.job_title}
-              status={i.status} date={i.created_at} price={i.total}
+              status={i.status} date={i.created_at} price={i.total} docId={i.id}
               onResend={async () => {
                 await fetch('/api/invoices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice_id: i.id }) })
                 setMessage(`✅ Invoice ${i.invoice_number} resent!`)
@@ -186,7 +186,7 @@ export default function JobDetailPage() {
           ))}
           {relatedDocs.quotes.map(q => (
             <DocCard key={q.id} type="Quote" number={q.quote_number} title={q.job_title}
-              status={q.status} date={q.created_at} price={q.total}
+              status={q.status} date={q.created_at} price={q.total} docId={q.id}
               onResend={async () => {
                 await fetch('/api/quotes', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quote_id: q.id }) })
                 setMessage(`✅ Quote ${q.quote_number} resent!`)
@@ -227,16 +227,18 @@ export default function JobDetailPage() {
   )
 }
 
-function DocCard({ type, number, title, status, date, price, onResend }: {
+function DocCard({ type, number, title, status, date, price, docId, onResend }: {
   type: string; number: string; title: string; status: string;
-  date: string; price: any; onResend: () => void
+  date: string; price: any; docId: number; onResend: () => void
 }) {
-  const [editing, setEditing] = useState(false)
   const icons: Record<string, string> = { Report: '📄', Invoice: '💰', Quote: '📋' }
+  const typeParam: Record<string, string> = { Report: 'report', Invoice: 'invoice', Quote: 'quote' }
   const statusColour: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-800',
     paid: 'bg-green-100 text-green-800',
   }
+
+  const viewUrl = `/api/pdf?type=${typeParam[type]}&id=${docId}`
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -254,6 +256,10 @@ function DocCard({ type, number, title, status, date, price, onResend }: {
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
+          <a href={viewUrl} target="_blank" rel="noopener noreferrer"
+            className="text-xs bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+            View PDF
+          </a>
           <button onClick={onResend}
             className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             Resend
