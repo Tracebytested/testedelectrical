@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
 import { findInspectionReport, downloadDriveFile } from '@/lib/drive'
-import { createCalendarEvent, getUpcomingEvents, parseBookingFromSMS } from '@/lib/calendar'
+import { createCalendarEvent, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
 import { sendEmail, buildEmailHTML } from '@/lib/gmail'
@@ -33,9 +33,9 @@ const DRIVE_KEYWORDS = [
 ]
 
 const CALENDAR_KEYWORDS = [
-  'book', 'schedule', 'add to calendar', 'put in calendar', 'book a job',
+  'book', 'schedule', 'add to calendar', 'put in calendar',
   'schedule a job', 'add job to calendar', 'book for', 'schedule for',
-  'book the job', 'calendar', 'diary'
+  'book the job', 'diary', 'what have i got', 'whats on', "what's on"
 ]
 
 const COMPLETE_KEYWORDS = [
@@ -70,32 +70,27 @@ function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar
   return 'unknown'
 }
 
-// Extract email address from SMS text
 function extractEmail(text: string): string | null {
   const match = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/)
   return match ? match[0] : null
 }
 
-// Extract price from SMS text
 function extractPrice(text: string): number {
   const match = text.match(/\$(\d+(?:\.\d{2})?)/)
   return match ? parseFloat(match[1]) : 0
 }
 
-// Extract an address from free text
 function extractAddressFromText(text: string): string | null {
   const match = text.match(/\d+\s+[A-Za-z\s]+(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent|Pl|Place)[,\s]+[A-Za-z]+/i)
   return match ? match[0].trim() : null
 }
 
-// Find job by address keywords or job number
 async function findJob(body: string): Promise<any | null> {
-  // Try job number first
   const jobRefMatch = body.match(/([JW]O?[-#]?\d{3,6})/i)
   if (jobRefMatch) {
     const ref = jobRefMatch[1]
     const result = await query(
-      `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
+      `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
        FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
        WHERE j.job_number ILIKE $1 OR j.work_order_ref ILIKE $1 LIMIT 1`,
       [`%${ref}%`]
@@ -103,27 +98,23 @@ async function findJob(body: string): Promise<any | null> {
     if (result.rows.length > 0) return result.rows[0]
   }
 
-  // Try to find by address — extract street number + name from message
   const addressMatch = body.match(/(\d+\s+[A-Za-z]+\s+(?:st|street|rd|road|ave|avenue|blvd|drive|dr|ct|court|way|cres|crescent|pl|place)[,\s])/i)
   if (addressMatch) {
     const addressFragment = addressMatch[1].trim().replace(/,$/, '')
     const result = await query(
-      `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
+      `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
        FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
-       WHERE j.site_address ILIKE $1
-       AND j.status IN ('pending', 'active')
+       WHERE j.site_address ILIKE $1 AND j.status IN ('pending', 'active')
        ORDER BY j.created_at DESC LIMIT 1`,
       [`%${addressFragment}%`]
     )
     if (result.rows.length > 0) return result.rows[0]
   }
 
-  // Fall back to most recent active/pending job
   const result = await query(
-    `SELECT j.*, c.name as client_name, c.email as client_email, c.company, j.agency_contact
+    `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
      FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
-     WHERE j.status IN ('pending', 'active')
-     ORDER BY j.created_at DESC LIMIT 1`
+     WHERE j.status IN ('pending', 'active') ORDER BY j.created_at DESC LIMIT 1`
   )
   return result.rows.length > 0 ? result.rows[0] : null
 }
@@ -137,11 +128,9 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
     workOrderRef: job.work_order_ref
   })
 
-  // Extract price from message, override AI if found
   const smsPrice = extractPrice(body)
   if (smsPrice > 0) reportData.price_ex_gst = smsPrice
 
-  // Extract email from message — overrides what's on file
   const smsEmail = extractEmail(body)
   const clientEmail = smsEmail || job.client_email
 
@@ -193,22 +182,20 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
   await query("UPDATE jobs SET status='completed', completed_date=$1, updated_at=NOW() WHERE id=$2", [today, job.id])
 
   if (clientEmail) {
-    // Update client email if provided in SMS
     if (smsEmail && smsEmail !== job.client_email) {
       await query("UPDATE clients SET email=$1 WHERE id=$2", [smsEmail, job.client_id])
     }
-
     await sendEmail({
       to: clientEmail,
       subject: `Service Report & Invoice - ${reportData.title} - ${reportNumber}`,
       body: buildEmailHTML(`
         <p>Hi ${job.agency_contact || job.client_name},</p>
-        <p>Please find attached the completed service report and invoice for the following works:</p>
+        <p>Please find attached the completed service report and invoice.</p>
         <p><strong>${reportData.title}</strong><br>
         Site: ${job.site_address}<br>
         ${job.work_order_ref ? `Work Order: ${job.work_order_ref}<br>` : ''}
         Report: ${reportNumber} | Invoice: ${invoiceNumber}</p>
-        <p>Total: $${total.toFixed(2)} inc GST — due within ${BUSINESS.payment_terms_days} days.</p>
+        <p>Total: $${total.toFixed(2)} inc GST</p>
         <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
       `),
       attachments: [
@@ -216,12 +203,11 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
         { filename: `Invoice_${invoiceNumber}.pdf`, content: invoicePDF, contentType: 'application/pdf' }
       ]
     })
-
     await query("UPDATE reports SET status='sent', sent_at=NOW() WHERE report_number=$1", [reportNumber])
     await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
-    await replyTo(from, `✅ Done!\nReport: ${reportNumber}\nInvoice: ${invoiceNumber} ($${total.toFixed(2)} inc GST)\nSent to: ${clientEmail}`)
+    await replyTo(from, `Done!\nReport: ${reportNumber}\nInvoice: ${invoiceNumber} ($${total.toFixed(2)} inc GST)\nSent to: ${clientEmail}`)
   } else {
-    await replyTo(from, `✅ Report ${reportNumber} + Invoice ${invoiceNumber} ($${total.toFixed(2)}) saved.\n⚠️ No email — reply with the client's email to send.`)
+    await replyTo(from, `Done! Report ${reportNumber} + Invoice ${invoiceNumber} ($${total.toFixed(2)}) saved.\nNo email on file - reply with client email to send.`)
   }
 }
 
@@ -256,26 +242,28 @@ export async function POST(req: NextRequest) {
            VALUES ($1, $2, $3, $4, $5, 'pending', 'sms')`,
           [jobNumber, clientId, workOrderData.title, workOrderData.description, workOrderData.site_address]
         )
-        await replyTo(from, `✅ Work order ${jobNumber} created!\n"${workOrderData.title}"\nClient: ${workOrderData.client}\nSite: ${workOrderData.site_address}`)
-        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+        await replyTo(from, `Work order ${jobNumber} created!\n"${workOrderData.title}"\nClient: ${workOrderData.client}\nSite: ${workOrderData.site_address}`)
+      } else {
+        await replyTo(from, `Couldn't create work order - try: "Create work order for [client] at [address] - [description]"`)
       }
+      return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // DRIVE intent — find and send inspection report from Google Drive
+    // DRIVE intent - find and send inspection report from Google Drive
     if (intent === 'drive') {
       const job = await findJob(body)
       const address = job?.site_address || extractAddressFromText(body)
-      
+
       if (!address) {
-        await replyTo(from, `Hey, I need an address to find the inspection report. Include the property address and try again.`)
+        await replyTo(from, `I need an address to find the inspection report. Include the property address and try again.`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
 
-      await replyTo(from, `Searching Google Drive for inspection report at ${address}... ⚡`)
+      await replyTo(from, `Searching Google Drive for ${address}... give me a moment`)
 
       const driveFile = await findInspectionReport(address)
       if (!driveFile) {
-        await replyTo(from, `Couldn't find an inspection report for "${address}" in Google Drive. Check the file name includes the address.`)
+        await replyTo(from, `Couldn't find a report for "${address}" in Google Drive. Check the file name includes the address.`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
 
@@ -284,61 +272,56 @@ export async function POST(req: NextRequest) {
       const price = extractPrice(body)
 
       if (clientEmail) {
-        // Generate invoice if price mentioned or job exists
-        let invoiceAttachment = null
-        let invoiceNumber = ''
-        
+        const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [
+          { filename: driveFile.name, content: fileBuffer, contentType: 'application/pdf' }
+        ]
+
+        let invoiceNote = ''
         if (price > 0 && job) {
-          const invNum = await getNextInvoiceNumber()
-          invoiceNumber = invNum
+          const invoiceNumber = await getNextInvoiceNumber()
           const { lineItems, subtotal, gst, total } = calculateLineItems([
             { description: `Safety Inspection - ${address}`, qty: 1, rate: price }
           ])
           await query(
             `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
              VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
-            [invNum, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
+            [invoiceNumber, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
              new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
           )
           const invPDF = await generateInvoicePDF({
-            invoice_number: invNum, date: formatDate(new Date()),
+            invoice_number: invoiceNumber, date: formatDate(new Date()),
             bill_to_name: job?.client_name || 'Client', bill_to_address: address,
             line_items: lineItems, subtotal, gst, total
           })
-          invoiceAttachment = { filename: \`Invoice_\${invNum}.pdf\`, content: invPDF, contentType: 'application/pdf' }
-          await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invNum])
+          attachments.push({ filename: `Invoice_${invoiceNumber}.pdf`, content: invPDF, contentType: 'application/pdf' })
+          await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
+          invoiceNote = ` + Invoice ${invoiceNumber} ($${total.toFixed(2)} inc GST)`
         }
-
-        const attachments: any[] = [
-          { filename: driveFile.name, content: fileBuffer, contentType: 'application/pdf' }
-        ]
-        if (invoiceAttachment) attachments.push(invoiceAttachment)
 
         await sendEmail({
           to: clientEmail,
-          subject: \`Safety Inspection Report - \${address}\`,
-          body: buildEmailHTML(\`
+          subject: `Safety Inspection Report - ${address}`,
+          body: buildEmailHTML(`
             <p>Hi,</p>
-            <p>Please find attached the safety inspection report for \${address}.\${invoiceAttachment ? ' An invoice has also been included.' : ''}</p>
-            \${invoiceAttachment ? \`<p><strong>Invoice #\${invoiceNumber}</strong> — $\${(price * 1.1).toFixed(2)} inc GST — due within \${BUSINESS.payment_terms_days} days.</p>\` : ''}
-            <p>Nathan<br>\${BUSINESS.phone}<br>\${BUSINESS.name}</p>
-          \`),
+            <p>Please find attached the safety inspection report for ${address}.</p>
+            ${price > 0 ? `<p>An invoice has also been included for $${(price * 1.1).toFixed(2)} inc GST, due within ${BUSINESS.payment_terms_days} days.</p>` : ''}
+            <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
+          `),
           attachments
         })
 
-        await replyTo(from, \`✅ Sent "\${driveFile.name}" to \${clientEmail}\${invoiceAttachment ? \` + Invoice \${invoiceNumber} ($\${(price * 1.1).toFixed(2)} inc GST)\` : ''}.\`)
+        await replyTo(from, `Sent "${driveFile.name}"${invoiceNote} to ${clientEmail}`)
       } else {
-        await replyTo(from, \`Found "\${driveFile.name}" but no email address. Reply with the client's email to send it.\`)
+        await replyTo(from, `Found "${driveFile.name}" but no email address. Reply with the client email to send it.`)
       }
-
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // CALENDAR intent — book a job in Google Calendar
+    // CALENDAR intent
     if (intent === 'calendar') {
       const booking = await parseBookingFromSMS(body)
       if (!booking) {
-        await replyTo(from, `Hey, I need a date to book this. Try: "Book electrical inspection at 45 Brown St for Monday 28 April at 9am"`)
+        await replyTo(from, `I need a date to book this. Try: "Book electrical inspection at 45 Brown St for Monday 28 April at 9am"`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
 
@@ -353,33 +336,31 @@ export async function POST(req: NextRequest) {
       })
 
       if (event) {
-        // Update job scheduled date if found
         if (job) {
           await query("UPDATE jobs SET scheduled_date=$1, status='active', updated_at=NOW() WHERE id=$2",
             [booking.date, job.id])
         }
-        const dateFormatted = new Date(booking.date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
-        await replyTo(from, \`📅 Booked! "\${event.title}"\n\${dateFormatted}\${booking.time ? ' at ' + booking.time : ''}\n\${booking.location || ''}\nAdded to your Google Calendar.\`)
+        const dateStr = new Date(booking.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
+        await replyTo(from, `Booked! "${event.title}"\n${dateStr}${booking.time ? ' at ' + booking.time : ''}\n${booking.location || ''}\nAdded to Google Calendar.`)
       } else {
-        await replyTo(from, `Couldn't add to calendar — check Google Calendar API is enabled in Google Cloud Console.`)
+        await replyTo(from, `Couldn't add to calendar - make sure Google Calendar API is enabled in Google Cloud Console.`)
       }
-
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // COMPLETE intent — find job and generate report + invoice
+    // COMPLETE intent
     if (intent === 'complete') {
       const job = await findJob(body)
       if (job) {
-        await replyTo(from, `Got it! Writing report + invoice for "${job.title}" at ${job.site_address}... 30 secs ⚡`)
+        await replyTo(from, `Got it! Writing report + invoice for "${job.title}" at ${job.site_address}... 30 secs`)
         await generateAndSendReportInvoice(job, body, from)
       } else {
-        await replyTo(from, `Hey, couldn't find a matching job. Include the address or job number and try again.`)
+        await replyTo(from, `Couldn't find a matching job. Include the address or job number and try again.`)
       }
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // UNKNOWN — let AI decide
+    // UNKNOWN - let AI decide
     const job = await findJob(body)
     const aiResponse = await processJobUpdateSMS(body, job ? {
       title: job.title, client: job.client_name,
@@ -387,7 +368,7 @@ export async function POST(req: NextRequest) {
     } : undefined)
 
     if (aiResponse.action === 'generate_report' && job) {
-      await replyTo(from, `Got it! Writing report + invoice for "${job.title}"... 30 secs ⚡`)
+      await replyTo(from, `Got it! Writing report + invoice for "${job.title}"... 30 secs`)
       await generateAndSendReportInvoice(job, body, from)
     } else {
       await replyTo(from, aiResponse.response || "Got it! Check the dashboard.")
@@ -398,7 +379,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error: any) {
     console.error('SMS webhook error:', error)
-    try { await sendSMS(from, '⚠️ Something went wrong. Check the dashboard.') } catch {}
+    try { await sendSMS(from, 'Something went wrong. Check the dashboard.') } catch {}
     return new NextResponse('<?xml version="1.0"?><Response></Response>', {
       headers: { 'Content-Type': 'text/xml' }
     })
