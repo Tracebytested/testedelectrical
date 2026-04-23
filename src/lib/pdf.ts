@@ -102,8 +102,8 @@ function addBusinessDetails(doc: any, y: number) {
 }
 
 function addLineItemsTable(doc: any, items: LineItem[], startY: number): number {
-  const cols = { desc: 40, qty: 300, rate: 350, amount: 400, gst: 460, subtotal: 510 }
-  const colWidths = { desc: 260, qty: 50, rate: 50, amount: 60, gst: 50, subtotal: 65 }
+  const cols = { desc: 40, qty: 290, rate: 340, amount: 390, gst: 445, subtotal: 495 }
+  const colWidths = { desc: 250, qty: 50, rate: 50, amount: 55, gst: 50, subtotal: 60 }
 
   // Header row
   doc.rect(40, startY, 515, 20).fillAndStroke('#1a56db', '#1a56db')
@@ -431,12 +431,13 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
     y += 12
     doc.text(data.date_completed, 40, y)
 
-    // Page footer
+    // Page footer - add new page if not enough space
+    if (y > doc.page.height - 50) { doc.addPage(); y = 40 }
     const fy = doc.page.height - 35
     doc.moveTo(40, fy - 10).lineTo(555, fy - 10).strokeColor('#e5e7eb').lineWidth(0.5).stroke()
     doc.fontSize(7.5).font('Helvetica').fillColor('#6b7280')
       .text(
-        `${BUSINESS.name} · ${BUSINESS.email} · ${BUSINESS.phone} · ABN ${BUSINESS.abn} · License REC: ${BUSINESS.rec}`,
+        `${BUSINESS.name} · ${BUSINESS.email} · ${BUSINESS.phone} · ABN ${BUSINESS.abn} · REC: ${BUSINESS.rec}`,
         40, fy, { align: 'center', width: 515 }
       )
 
