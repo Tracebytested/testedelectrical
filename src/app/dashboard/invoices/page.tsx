@@ -98,11 +98,15 @@ export default function InvoicesPage() {
                   </td>
                   <td className="px-4 py-3.5">
                     <div className="flex gap-2">
+                      <a href={`/api/pdf?type=invoice&id=${inv.id}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg hover:bg-gray-800">
+                        View
+                      </a>
                       {inv.status === 'draft' && (
                         <button
                           onClick={() => sendInvoice(inv.id)}
                           disabled={sending === inv.id}
-                          className="text-xs bg-[#1a1a1a] text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-40"
+                          className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-40"
                         >
                           {sending === inv.id ? 'Sending...' : 'Send'}
                         </button>
