@@ -97,7 +97,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 })
     }
 
-    return new NextResponse(pdfBuffer, {
+    const uint8Array = new Uint8Array(pdfBuffer)
+    return new NextResponse(uint8Array, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="${type}-${id}.pdf"`,
