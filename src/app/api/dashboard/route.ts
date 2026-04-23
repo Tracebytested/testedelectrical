@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
           COUNT(*) FILTER (WHERE status = 'sent') as sent,
           COUNT(*) FILTER (WHERE status = 'paid') as paid,
           COUNT(*) FILTER (WHERE status = 'overdue') as overdue,
-          COALESCE(SUM(total) FILTER (WHERE status = 'sent'), 0) as outstanding,
+          COALESCE(SUM(total) FILTER (WHERE status IN ('sent', 'draft') AND total > 0), 0) as outstanding,
           COALESCE(SUM(total) FILTER (WHERE status = 'paid' AND paid_at > NOW() - INTERVAL '30 days'), 0) as paid_this_month
         FROM invoices
       `).catch(() => ({ rows: [{ sent: '0', paid: '0', overdue: '0', outstanding: '0', paid_this_month: '0' }] })),
