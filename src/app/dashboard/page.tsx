@@ -26,8 +26,8 @@ export default function DashboardPage() {
   const [pollResult, setPollResult] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    fetch('/api/dashboard?t=' + Date.now())
+  const loadStats = () => {
+    fetch('/api/dashboard?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         if (data.error) {
@@ -37,6 +37,13 @@ export default function DashboardPage() {
         }
       })
       .catch(e => setError(e.message))
+  }
+
+  useEffect(() => {
+    loadStats()
+    // Refresh every 30 seconds
+    const interval = setInterval(loadStats, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   const pollEmail = async () => {
@@ -107,8 +114,8 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Active jobs" value={stats?.jobs?.active || '0'} sub="in progress" colour="blue" />
-        <StatCard label="Pending jobs" value={stats?.jobs?.pending || '0'} sub="awaiting action" colour="amber" />
+        <StatCard label="Active jobs" value={String(parseInt(stats?.jobs?.active || '0'))} sub="in progress" colour="blue" />
+        <StatCard label="Pending jobs" value={String(parseInt(stats?.jobs?.pending || '0'))} sub="awaiting action" colour="amber" />
         <StatCard label="Outstanding" value={`$${parseFloat(stats?.invoices?.outstanding || '0').toFixed(0)}`} sub="invoices sent" colour="purple" />
         <StatCard label="Paid this month" value={`$${parseFloat(stats?.invoices?.paid_this_month || '0').toFixed(0)}`} sub="collected" colour="green" />
       </div>
