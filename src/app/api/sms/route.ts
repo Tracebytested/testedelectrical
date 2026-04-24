@@ -320,7 +320,7 @@ export async function POST(req: NextRequest) {
       // If searching by address didn't work, try keyword search from the message
       if (foundFiles.length === 0) {
         // Try to extract key terms like "sheffield" or property names
-        const keywords = body.match(/[A-Z][a-z]{3,}/g) || []
+        const keywords = body.match(/\b[A-Z][a-z]{3,}\b/g) || []
         for (const kw of keywords.slice(0, 3)) {
           const driveFile = await findInspectionReport(kw)
           if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
@@ -347,7 +347,7 @@ export async function POST(req: NextRequest) {
         if (price > 0 && job) {
           const invoiceNumber = await getNextInvoiceNumber()
           const { lineItems, subtotal, gst, total } = calculateLineItems([
-            { description: `Safety Inspection - ${address}`, qty: 1, rate: price }
+            { description: `Safety Inspection - ${addressesToSearch[0] || job?.site_address || 'Property'}`, qty: 1, rate: price }
           ])
           await query(
             `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
@@ -357,7 +357,7 @@ export async function POST(req: NextRequest) {
           )
           const invPDF = await generateInvoicePDF({
             invoice_number: invoiceNumber, date: formatDate(new Date()),
-            bill_to_name: job?.client_name || 'Client', bill_to_address: address,
+            bill_to_name: job?.client_name || 'Client', bill_to_address: addressesToSearch[0] || job?.site_address || '',
             line_items: lineItems, subtotal, gst, total
           })
           attachments.push({ filename: `Invoice_${invoiceNumber}.pdf`, content: invPDF, contentType: 'application/pdf' })
