@@ -27,9 +27,13 @@ async function replyTo(from: string, message: string) {
 }
 
 const DRIVE_KEYWORDS = [
+  'google drive', 'from drive', 'on drive', 'in drive',
   'send the inspection', 'send inspection report', 'attach the report from drive',
-  'google drive', 'send the safety', 'attach inspection', 'send from drive',
-  'safety inspection report', 'send the certificate'
+  'send the safety', 'attach inspection', 'send from drive',
+  'safety inspection report', 'send the certificate',
+  'attach both reports', 'attach the reports', 'attach report',
+  'reports i have made', 'reports i made', 'reports from my drive',
+  'files from drive', 'attach files', 'send the files'
 ]
 
 const CALENDAR_KEYWORDS = [
@@ -55,17 +59,22 @@ const CREATE_KEYWORDS = [
 
 function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar' | 'unknown' {
   const lower = text.toLowerCase()
-  for (const kw of COMPLETE_KEYWORDS) {
-    if (lower.includes(kw)) return 'complete'
-  }
+
+  // Check DRIVE first — if they mention google drive or attaching reports, that takes priority
   for (const kw of DRIVE_KEYWORDS) {
     if (lower.includes(kw)) return 'drive'
   }
+  // Check CALENDAR next
   for (const kw of CALENDAR_KEYWORDS) {
     if (lower.includes(kw)) return 'calendar'
   }
+  // Then CREATE
   for (const kw of CREATE_KEYWORDS) {
     if (lower.includes(kw)) return 'create'
+  }
+  // COMPLETE last — invoice/report keywords only if no drive/calendar intent
+  for (const kw of COMPLETE_KEYWORDS) {
+    if (lower.includes(kw)) return 'complete'
   }
   return 'unknown'
 }
@@ -264,32 +273,75 @@ export async function POST(req: NextRequest) {
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // DRIVE intent - find and send inspection report from Google Drive
+    // DRIVE intent - find and send files from Google Drive
     if (intent === 'drive') {
       const job = await findJob(body)
-      const address = job?.site_address || extractAddressFromText(body)
-
-      if (!address) {
-        await replyTo(from, `I need an address to find the inspection report. Include the property address and try again.`)
-        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
-      }
-
-      await replyTo(from, `Searching Google Drive for ${address}... give me a moment`)
-
-      const driveFile = await findInspectionReport(address)
-      if (!driveFile) {
-        await replyTo(from, `Couldn't find a report for "${address}" in Google Drive. Check the file name includes the address.`)
-        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
-      }
-
-      const fileBuffer = await downloadDriveFile(driveFile.id)
       const clientEmail = extractEmail(body) || job?.client_email
       const price = extractPrice(body)
 
+      await replyTo(from, `Searching Google Drive... give me a moment`)
+
+      // Extract all addresses mentioned in the message
+      const addressMatches = body.match(/\d+\s+[A-Za-z\s]+(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent|Pl|Place)[,\s]+[A-Za-z]+/gi) || []
+      const singleAddress = extractAddressFromText(body)
+      const jobAddress = job?.site_address
+
+      // Build list of addresses to search
+      const addressesToSearch: string[] = []
+      if (addressMatches.length > 0) {
+        addressesToSearch.push(...addressMatches.map((a: string) => a.trim()))
+      } else if (singleAddress) {
+        addressesToSearch.push(singleAddress)
+      } else if (jobAddress) {
+        addressesToSearch.push(jobAddress)
+      }
+
+      // Also check for "unit 1" and "unit 2" type references in the message
+      const unitMatches = body.match(/unit\s+\d+[,\s]+[A-Za-z0-9\s]+(?:St|Street|Rd|Road|Ave|Avenue)/gi) || []
+      if (unitMatches.length > 0 && addressesToSearch.length === 0) {
+        unitMatches.forEach((u: string) => addressesToSearch.push(u.trim()))
+      }
+
+      if (addressesToSearch.length === 0) {
+        await replyTo(from, `I need an address to find the reports. Include the property address and try again.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
+      // Search for all files
+      const foundFiles: Array<{ file: any; buffer: Buffer }> = []
+      for (const addr of addressesToSearch) {
+        const driveFile = await findInspectionReport(addr)
+        if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
+          const buffer = await downloadDriveFile(driveFile.id)
+          foundFiles.push({ file: driveFile, buffer })
+        }
+      }
+
+      // If searching by address didn't work, try keyword search from the message
+      if (foundFiles.length === 0) {
+        // Try to extract key terms like "sheffield" or property names
+        const keywords = body.match(/[A-Z][a-z]{3,}/g) || []
+        for (const kw of keywords.slice(0, 3)) {
+          const driveFile = await findInspectionReport(kw)
+          if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
+            const buffer = await downloadDriveFile(driveFile.id)
+            foundFiles.push({ file: driveFile, buffer })
+          }
+        }
+      }
+
+      if (foundFiles.length === 0) {
+        await replyTo(from, `Couldn't find any matching reports in Google Drive. Check the file names include the address or property name.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
       if (clientEmail) {
-        const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [
-          { filename: driveFile.name, content: fileBuffer, contentType: 'application/pdf' }
-        ]
+        const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = 
+          foundFiles.map(({ file, buffer }) => ({
+            filename: file.name,
+            content: buffer,
+            contentType: 'application/pdf'
+          }))
 
         let invoiceNote = ''
         if (price > 0 && job) {
@@ -313,21 +365,25 @@ export async function POST(req: NextRequest) {
           invoiceNote = ` + Invoice ${invoiceNumber} ($${total.toFixed(2)} inc GST)`
         }
 
+        const fileNames = foundFiles.map(f => f.file.name).join(', ')
+        const addressDesc = addressesToSearch.join(' & ') || 'requested property'
+
         await sendEmail({
           to: clientEmail,
-          subject: `Safety Inspection Report - ${address}`,
+          subject: `Inspection Reports - ${addressDesc}`,
           body: buildEmailHTML(`
             <p>Hi,</p>
-            <p>Please find attached the safety inspection report for ${address}.</p>
+            <p>Please find attached the inspection report${foundFiles.length > 1 ? 's' : ''} for ${addressDesc}.</p>
             ${price > 0 ? `<p>An invoice has also been included for $${(price * 1.1).toFixed(2)} inc GST, due within ${BUSINESS.payment_terms_days} days.</p>` : ''}
             <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
           `),
           attachments
         })
 
-        await replyTo(from, `Sent "${driveFile.name}"${invoiceNote} to ${clientEmail}`)
+        await replyTo(from, `Sent ${foundFiles.length} file${foundFiles.length > 1 ? 's' : ''} (${fileNames})${invoiceNote ? invoiceNote : ''} to ${clientEmail}`)
       } else {
-        await replyTo(from, `Found "${driveFile.name}" but no email address. Reply with the client email to send it.`)
+        const fileNames = foundFiles.map(f => f.file.name).join(', ')
+        await replyTo(from, `Found ${foundFiles.length} file${foundFiles.length > 1 ? 's' : ''}: ${fileNames}. Reply with the client email to send them.`)
       }
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
