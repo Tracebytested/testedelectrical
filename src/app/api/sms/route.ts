@@ -375,10 +375,32 @@ Return ONLY valid JSON.`
         let invoiceNote = ''
         if (price > 0) {
           const invoiceNumber = await getNextInvoiceNumber()
-          const desc = `Inspection - ${extractStreetName(body) || 'Property'}`
-          const { lineItems, subtotal, gst, total } = calculateLineItems([
-            { description: desc, qty: 1, rate: price }
-          ])
+
+          // Use AI to extract line items from the message
+          let lineItemsRaw: Array<{ description: string; qty: number; rate: number }> = []
+          try {
+            const lineItemAI = await anthropic.messages.create({
+              model: 'claude-sonnet-4-5',
+              max_tokens: 300,
+              messages: [{
+                role: 'user',
+                content: `Extract invoice line items from this message. Total must equal $${price} ex GST.
+Message: "${body}"
+Return ONLY a JSON array of line items:
+- description (e.g. "Electrical Inspection", "Smoke Alarm Inspection")
+- qty (number)
+- rate (ex GST dollar amount, number)
+Make sure qty * rate adds up to ${price} total across all items.
+Return ONLY valid JSON array.`
+              }]
+            })
+            const aiText = lineItemAI.content[0].type === 'text' ? lineItemAI.content[0].text : '[]'
+            lineItemsRaw = JSON.parse(aiText.replace(/\`\`\`json|\`\`\`/g, '').trim())
+          } catch {
+            lineItemsRaw = [{ description: 'Electrical Inspection Services', qty: 1, rate: price }]
+          }
+
+          const { lineItems, subtotal, gst, total } = calculateLineItems(lineItemsRaw)
           if (job) {
             await query(
               `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
@@ -390,7 +412,7 @@ Return ONLY valid JSON.`
           const invPDF = await generateInvoicePDF({
             invoice_number: invoiceNumber, date: formatDate(new Date()),
             bill_to_name: job?.client_name || 'Client',
-            bill_to_address: job?.site_address || extractStreetName(body),
+            bill_to_address: job?.site_address || '',
             line_items: lineItems, subtotal, gst, total
           })
           attachments.push({ filename: `Invoice_${invoiceNumber}.pdf`, content: invPDF, contentType: 'application/pdf' })
