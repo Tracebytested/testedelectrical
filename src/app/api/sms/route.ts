@@ -86,24 +86,35 @@ function extractPrice(text: string): number {
   return match ? parseFloat(match[1]) : 0
 }
 
-// Extract the primary street name from a message (skips common words)
+// Extract the street name from a message
 function extractStreetName(text: string): string {
   const SKIP_WORDS = new Set([
     'invoice', 'attach', 'both', 'reports', 'report', 'drive', 'google',
-    'send', 'made', 'have', 'unit', 'please', 'made', 'that', 'the',
-    'and', 'for', 'from', 'with', 'this', 'them', 'also', 'just'
+    'send', 'made', 'have', 'unit', 'please', 'that', 'the', 'and',
+    'for', 'from', 'with', 'this', 'them', 'also', 'just', 'all',
+    'my', 'today', 'uploaded', 'street', 'road', 'avenue', 'both',
+    'documents', 'document', 'files', 'file', 'please', 'kilaris'
   ])
-  // Look for a proper noun that looks like a street name (4+ chars, not a skip word)
+
+  // Best: word that appears right before "st", "street", "rd" etc
+  const streetSuffixMatch = text.match(/([a-zA-Z]{4,})\s+(?:st|street|rd|road|ave|avenue|blvd|dr|drive)/i)
+  if (streetSuffixMatch) {
+    const word = streetSuffixMatch[1].toLowerCase()
+    if (!SKIP_WORDS.has(word)) return streetSuffixMatch[1]
+  }
+
+  // Second: word after "unit X" - e.g. "unit 1 sheffield" -> "sheffield"  
+  const afterUnit = text.match(/unit\s+\d+\s+([a-zA-Z]{4,})/i)
+  if (afterUnit && !SKIP_WORDS.has(afterUnit[1].toLowerCase())) {
+    return afterUnit[1]
+  }
+
+  // Third: any word 4+ chars not in skip list
   const words = text.replace(/[^a-zA-Z\s]/g, ' ').split(/\s+/)
   for (const word of words) {
-    const lower = word.toLowerCase()
-    if (word.length >= 4 && !SKIP_WORDS.has(lower) && /^[A-Z]/.test(word)) {
+    if (word.length >= 4 && !SKIP_WORDS.has(word.toLowerCase())) {
       return word
     }
-  }
-  // Fallback: find any capitalised word
-  for (const word of words) {
-    if (word.length >= 4 && /^[A-Z]/.test(word)) return word
   }
   return ''
 }
@@ -287,23 +298,62 @@ export async function POST(req: NextRequest) {
       const job = await findJob(body)
       const clientEmail = extractEmail(body) || job?.client_email
       const price = extractPrice(body)
-      const lower = body.toLowerCase()
 
       await replyTo(from, `Searching Google Drive... give me a moment`)
 
+      // Use AI to extract what to search for from the message
+      const Anthropic = require('@anthropic-ai/sdk').default
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+      const today = new Date().toISOString().split('T')[0]
+
+      const aiSearch = await anthropic.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: `Today is ${today}. Extract Google Drive search terms from this message.
+Message: "${body}"
+Return ONLY a JSON object with:
+- terms: array of search strings to use (e.g. ["sheffield"] or ["345 test st"] or ["lavinia"])
+- recentOnly: true if they said "today" or "uploaded today" or "just uploaded"
+Return ONLY valid JSON.`
+        }]
+      })
+
+      let searchTerms: string[] = []
+      let recentOnly = false
+      try {
+        const aiText = aiSearch.content[0].type === 'text' ? aiSearch.content[0].text : '{}'
+        const parsed = JSON.parse(aiText.replace(/\`\`\`json|\`\`\`/g, '').trim())
+        searchTerms = parsed.terms || []
+        recentOnly = parsed.recentOnly || false
+      } catch {
+        searchTerms = [extractStreetName(body)].filter(Boolean)
+      }
+
+      console.log('Drive search terms:', searchTerms, 'recentOnly:', recentOnly)
+
       const foundFiles: Array<{ file: any; buffer: Buffer }> = []
 
-      // Extract the street name and search Drive for ALL matching PDFs
-      // We don't try to match unit numbers to filenames - just get everything matching the street
-      const streetName = extractStreetName(body)
-      console.log('Drive search - street name extracted:', streetName)
+      for (const term of searchTerms) {
+        if (!term) continue
+        let files = await findAllInspectionReports(term)
+        
+        // If they said "today" or "uploaded today", filter to files modified today
+        if (recentOnly) {
+          const todayStart = new Date()
+          todayStart.setHours(0, 0, 0, 0)
+          files = files.filter((f: any) => {
+            if (!f.modifiedTime) return true
+            return new Date(f.modifiedTime) >= todayStart
+          })
+        }
 
-      if (streetName) {
-        const allFiles = await findAllInspectionReports(streetName)
-        console.log('Drive search - files found:', allFiles.map((f: any) => f.name))
-        for (const file of allFiles) {
-          const buffer = await downloadDriveFile(file.id)
-          foundFiles.push({ file, buffer })
+        for (const file of files) {
+          if (!foundFiles.find(f => f.file.id === file.id)) {
+            const buffer = await downloadDriveFile(file.id)
+            foundFiles.push({ file, buffer })
+          }
         }
       }
 
