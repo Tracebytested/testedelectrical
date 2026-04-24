@@ -94,7 +94,7 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
       const nameQuery = `'${folderId}' in parents and trashed = false and name contains '${shortAddr}' and (mimeType contains 'image/' or name contains '.jpg')`
       const nameRes = await drive.files.list({
         q: nameQuery,
-        fields: 'files(id, name, mimeType)',
+        fields: 'files(id, name, mimeType, modifiedTime)',
         orderBy: 'modifiedTime desc',
         pageSize: 10
       })
@@ -105,7 +105,7 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
 
     const res = await drive.files.list({
       q: query,
-      fields: 'files(id, name, mimeType)',
+      fields: 'files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
       pageSize: 10
     })
@@ -128,6 +128,7 @@ export async function findUnitReport(unitNumber: string, streetName: string): Pr
   try {
     const drive = google.drive({ version: 'v3', auth: getAuth() })
     
+    // Search by street name to get all matching files
     const res = await drive.files.list({
       q: `name contains '${streetName}' and trashed = false`,
       fields: 'files(id, name, mimeType, modifiedTime)',
@@ -142,28 +143,34 @@ export async function findUnitReport(unitNumber: string, streetName: string): Pr
       f.name?.includes('Smoke')
     )
 
-    // Try to find file matching the unit number
-    // Unit 1 -> look for "1/" or "1-" or "unit-1" at start of filename
+    console.log('findUnitReport: unit=' + unitNumber + ' street=' + streetName + ' found ' + files.length + ' files:', files.map((f: any) => f.name))
+
+    // Match patterns for unit number in filename:
+    // "Unit 1, 61 Sheffield..." or "1/61 Sheffield..." or "1-61 Sheffield..." or "Unit-1" etc
     const unitPatterns = [
-      new RegExp(`^${unitNumber}[/\\-\\s]`, 'i'),
-      new RegExp(`unit.?${unitNumber}`, 'i'),
-      new RegExp(`^${unitNumber}\\s`),
+      new RegExp(`unit\s*${unitNumber}[,\s]`, 'i'),  // "Unit 1," or "Unit1 "
+      new RegExp(`^${unitNumber}[/,\s-]`, 'i'),        // "1/" or "1," or "1-" at start
+      new RegExp(`unit.?${unitNumber}`, 'i'),            // "Unit1" anywhere
+      new RegExp(`\b${unitNumber}[/,]`, 'i'),           // "1/" or "1," anywhere
     ]
 
     for (const pattern of unitPatterns) {
       const match = files.find((f: any) => pattern.test(f.name || ''))
-      if (match) return match as any
+      if (match) {
+        console.log('findUnitReport matched:', match.name)
+        return match as any
+      }
     }
 
-    // If no unit-specific match, return first file (fallback)
-    return files.length > 0 ? files[0] as any : null
+    console.log('findUnitReport: no unit-specific match found')
+    return null
   } catch (error) {
     console.error('Drive unit search error:', error)
     return null
   }
 }
 
-// Find ALL inspection reports matching a location (for "both reports" requests)
+// Find all PDFs in Drive matching a search term - simple and direct
 export async function findAllInspectionReports(searchTerm: string): Promise<Array<{
   id: string
   name: string
@@ -171,27 +178,17 @@ export async function findAllInspectionReports(searchTerm: string): Promise<Arra
 }>> {
   try {
     const drive = google.drive({ version: 'v3', auth: getAuth() })
-    
-    // Extract just the street name for broad search
-    const words = searchTerm.split(' ').filter(w => w.length > 2)
-    const streetName = words.find(w => !w.match(/^\d+$/) && w.length > 3) || words[0]
-    
     const res = await drive.files.list({
-      q: `name contains '${streetName}' and trashed = false`,
+      q: `name contains '${searchTerm}' and mimeType = 'application/pdf' and trashed = false`,
       fields: 'files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
-      pageSize: 20
+      pageSize: 10
     })
-
-    const files = (res.data.files || []).filter((f: any) => 
-      f.mimeType === 'application/pdf' || 
-      (f.name && (f.name.toLowerCase().endsWith('.pdf') || 
-       f.name.includes('Electrical') || f.name.includes('Smoke')))
-    )
-    
-    return files as any[]
+    const files = (res.data.files || []) as any[]
+    console.log('Drive search "' + searchTerm + '" returned:', files.map((f: any) => f.name))
+    return files
   } catch (error) {
-    console.error('Drive search all error:', error)
+    console.error('Drive search error:', error)
     return []
   }
 }
