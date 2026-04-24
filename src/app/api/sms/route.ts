@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
-import { findAllInspectionReports, findUnitReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
+import { findAllInspectionReports, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
 import { createCalendarEvent, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
@@ -291,41 +291,19 @@ export async function POST(req: NextRequest) {
 
       await replyTo(from, `Searching Google Drive... give me a moment`)
 
-      // Step 1: Detect unit number references e.g. "unit 1 sheffield" "unit 2 sheffield"
-      const unitRefs = Array.from(body.matchAll(/unit\s*(\d+)\s+([A-Za-z]+)/gi))
       const foundFiles: Array<{ file: any; buffer: Buffer }> = []
 
-      if (unitRefs.length > 0) {
-        // Extract street name — skip common non-street words
-        const streetName = extractStreetName(body)
-        console.log('Unit refs found:', unitRefs.length, 'Street:', streetName)
+      // Extract the street name and search Drive for ALL matching PDFs
+      // We don't try to match unit numbers to filenames - just get everything matching the street
+      const streetName = extractStreetName(body)
+      console.log('Drive search - street name extracted:', streetName)
 
-        for (const match of unitRefs) {
-          const unitNum = match[1]
-          const searchStreet = streetName || match[2]
-          console.log('Searching unit', unitNum, 'at', searchStreet)
-          const file = await findUnitReport(unitNum, searchStreet)
-          if (file && !foundFiles.find(f => f.file.id === file.id)) {
-            console.log('Found:', file.name)
-            const buffer = await downloadDriveFile(file.id)
-            foundFiles.push({ file, buffer })
-          }
-        }
-      }
-
-      // Step 2: If no unit refs or unit search failed, try broad street search
-      if (foundFiles.length === 0) {
-        const streetName = extractStreetName(body)
-        if (streetName) {
-          const allFiles = await findAllInspectionReports(streetName)
-          for (const file of allFiles) {
-            if (!foundFiles.find(f => f.file.id === file.id)) {
-              const buffer = await downloadDriveFile(file.id)
-              foundFiles.push({ file, buffer })
-              // If only asking for one, stop at 1; if "both" requested get up to 5
-              if (!lower.includes('both') && !lower.includes('all') && foundFiles.length >= 1) break
-            }
-          }
+      if (streetName) {
+        const allFiles = await findAllInspectionReports(streetName)
+        console.log('Drive search - files found:', allFiles.map((f: any) => f.name))
+        for (const file of allFiles) {
+          const buffer = await downloadDriveFile(file.id)
+          foundFiles.push({ file, buffer })
         }
       }
 
