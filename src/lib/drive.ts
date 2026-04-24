@@ -117,6 +117,85 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
   }
 }
 
+
+
+// Find a specific unit's report - e.g. "unit 1" at "Sheffield"
+export async function findUnitReport(unitNumber: string, streetName: string): Promise<{
+  id: string
+  name: string
+  mimeType: string
+} | null> {
+  try {
+    const drive = google.drive({ version: 'v3', auth: getAuth() })
+    
+    const res = await drive.files.list({
+      q: `name contains '${streetName}' and trashed = false`,
+      fields: 'files(id, name, mimeType, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      pageSize: 20
+    })
+
+    const files = (res.data.files || []).filter((f: any) => 
+      f.mimeType === 'application/pdf' || 
+      f.name?.toLowerCase().endsWith('.pdf') ||
+      f.name?.includes('Electrical') || 
+      f.name?.includes('Smoke')
+    )
+
+    // Try to find file matching the unit number
+    // Unit 1 -> look for "1/" or "1-" or "unit-1" at start of filename
+    const unitPatterns = [
+      new RegExp(`^${unitNumber}[/\\-\\s]`, 'i'),
+      new RegExp(`unit.?${unitNumber}`, 'i'),
+      new RegExp(`^${unitNumber}\\s`),
+    ]
+
+    for (const pattern of unitPatterns) {
+      const match = files.find((f: any) => pattern.test(f.name || ''))
+      if (match) return match as any
+    }
+
+    // If no unit-specific match, return first file (fallback)
+    return files.length > 0 ? files[0] as any : null
+  } catch (error) {
+    console.error('Drive unit search error:', error)
+    return null
+  }
+}
+
+// Find ALL inspection reports matching a location (for "both reports" requests)
+export async function findAllInspectionReports(searchTerm: string): Promise<Array<{
+  id: string
+  name: string
+  mimeType: string
+}>> {
+  try {
+    const drive = google.drive({ version: 'v3', auth: getAuth() })
+    
+    // Extract just the street name for broad search
+    const words = searchTerm.split(' ').filter(w => w.length > 2)
+    const streetName = words.find(w => !w.match(/^\d+$/) && w.length > 3) || words[0]
+    
+    const res = await drive.files.list({
+      q: `name contains '${streetName}' and trashed = false`,
+      fields: 'files(id, name, mimeType, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      pageSize: 20
+    })
+
+    const files = (res.data.files || []).filter((f: any) => 
+      f.mimeType === 'application/pdf' || 
+      (f.name && (f.name.toLowerCase().endsWith('.pdf') || 
+       f.name.includes('Electrical') || f.name.includes('Smoke')))
+    )
+    
+    return files as any[]
+  } catch (error) {
+    console.error('Drive search all error:', error)
+    return []
+  }
+}
+
 // Download a file from Google Drive as a buffer
 export async function downloadDriveFile(fileId: string): Promise<Buffer> {
   const drive = google.drive({ version: 'v3', auth: getAuth() })
