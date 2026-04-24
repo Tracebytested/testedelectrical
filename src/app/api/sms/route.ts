@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
-import { findInspectionReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
+import { findInspectionReport, findAllInspectionReports, findUnitReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
 import { createCalendarEvent, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
@@ -309,26 +309,81 @@ export async function POST(req: NextRequest) {
 
       // Search for all files
       const foundFiles: Array<{ file: any; buffer: Buffer }> = []
-      for (const addr of addressesToSearch) {
-        const driveFile = await findInspectionReport(addr)
-        if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
-          const buffer = await downloadDriveFile(driveFile.id)
-          foundFiles.push({ file: driveFile, buffer })
+      const bodyLowerDrive = body.toLowerCase()
+
+      // Detect specific unit references like "unit 1 sheffield" and "unit 2 sheffield"
+      const unitRefs = body.match(/unit\s*(\d+)\s+([A-Za-z]+)/gi) || []
+      if (unitRefs.length > 0) {
+        // Extract street name from message
+        const streetMatch = body.match(/(?:unit\s*\d+\s+)?([A-Za-z]{4,})/i)
+        const streetName = streetMatch ? streetMatch[1] : (addressesToSearch[0] || '')
+        
+        for (const unitRef of unitRefs) {
+          const unitNumMatch = unitRef.match(/unit\s*(\d+)/i)
+          const unitNum = unitNumMatch ? unitNumMatch[1] : ''
+          if (unitNum && streetName) {
+            const file = await findUnitReport(unitNum, streetName)
+            if (file && !foundFiles.find(f => f.file.id === file.id)) {
+              const buffer = await downloadDriveFile(file.id)
+              foundFiles.push({ file, buffer })
+            }
+          }
         }
       }
 
-      // If searching by address didn't work, try keyword search from the message
+      // If unit search found files, skip the rest
+      
+      // If "both" or "unit 1 and unit 2" mentioned, do a broad search to get ALL matching files
       if (foundFiles.length === 0) {
-        // Try to extract key terms like "sheffield" or property names
-        const keywords = body.match(/\b[A-Z][a-z]{3,}\b/g) || []
-        for (const kw of keywords.slice(0, 3)) {
-          const driveFile = await findInspectionReport(kw)
+      const wantMultiple = bodyLowerDrive.includes('both') || 
+        bodyLowerDrive.includes('unit 1 and unit 2') ||
+        bodyLowerDrive.includes('all reports') ||
+        bodyLowerDrive.includes('all the reports')
+
+      if (wantMultiple && addressesToSearch.length > 0) {
+        // Use broad search to get all files for this location
+        const searchAddr = addressesToSearch[0]
+        const allFiles = await findAllInspectionReports(searchAddr)
+        for (const file of allFiles) {
+          if (!foundFiles.find(f => f.file.id === file.id)) {
+            const buffer = await downloadDriveFile(file.id)
+            foundFiles.push({ file, buffer })
+          }
+        }
+      } else {
+        // Standard search - one file per address
+        for (const addr of addressesToSearch) {
+          const driveFile = await findInspectionReport(addr)
           if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
             const buffer = await downloadDriveFile(driveFile.id)
             foundFiles.push({ file: driveFile, buffer })
           }
         }
       }
+
+      // If still nothing found, try keyword search from the message
+      if (foundFiles.length === 0) {
+        const keywords = body.match(/\b[A-Z][a-z]{3,}\b/g) || []
+        for (const kw of keywords.slice(0, 3)) {
+          if (wantMultiple) {
+            const allFiles = await findAllInspectionReports(kw)
+            for (const file of allFiles) {
+              if (!foundFiles.find(f => f.file.id === file.id)) {
+                const buffer = await downloadDriveFile(file.id)
+                foundFiles.push({ file, buffer })
+              }
+            }
+          } else {
+            const driveFile = await findInspectionReport(kw)
+            if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
+              const buffer = await downloadDriveFile(driveFile.id)
+              foundFiles.push({ file: driveFile, buffer })
+            }
+          }
+          if (foundFiles.length >= 2) break
+        }
+      }
+      } // end unit search else
 
       if (foundFiles.length === 0) {
         await replyTo(from, `Couldn't find any matching reports in Google Drive. Check the file names include the address or property name.`)
