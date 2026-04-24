@@ -337,11 +337,12 @@ export async function POST(req: NextRequest) {
 
       if (clientEmail) {
         const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = 
-          foundFiles.map(({ file, buffer }) => ({
-            filename: file.name,
-            content: buffer,
-            contentType: 'application/pdf'
-          }))
+          foundFiles.map(({ file, buffer }) => {
+            // Sanitize filename - replace slashes, ensure .pdf extension
+            let filename = file.name.replace(/\//g, '-').replace(/\\/g, '-')
+            if (!filename.toLowerCase().endsWith('.pdf')) filename += '.pdf'
+            return { filename, content: buffer, contentType: 'application/pdf' }
+          })
 
         let invoiceNote = ''
         if (price > 0 && job) {
