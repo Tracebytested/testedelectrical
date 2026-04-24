@@ -10,6 +10,7 @@ function getAuth() {
 }
 
 // Search Google Drive root for a PDF matching an address
+// Returns most recently modified matching file
 export async function findInspectionReport(address: string): Promise<{
   id: string
   name: string
@@ -17,29 +18,42 @@ export async function findInspectionReport(address: string): Promise<{
 } | null> {
   try {
     const drive = google.drive({ version: 'v3', auth: getAuth() })
-    const addressParts = address.split(' ').slice(0, 3).join(' ')
+    
+    // Try progressively shorter search terms
+    const searchTerms = [
+      address.split(' ').slice(0, 3).join(' '),  // e.g. "61 Sheffield St"
+      address.split(' ').slice(0, 2).join(' '),  // e.g. "61 Sheffield"  
+      address.split(' ')[0],                       // e.g. "61" or "Sheffield"
+    ]
 
-    const res = await drive.files.list({
-      q: `name contains '${addressParts}' and mimeType = 'application/pdf' and trashed = false and 'root' in parents`,
-      fields: 'files(id, name, mimeType)',
-      orderBy: 'modifiedTime desc',
-      pageSize: 5
-    })
-
-    const files = res.data.files || []
-    if (files.length === 0) {
-      const shortAddress = address.split(' ').slice(0, 2).join(' ')
-      const res2 = await drive.files.list({
-        q: `name contains '${shortAddress}' and mimeType = 'application/pdf' and trashed = false`,
-        fields: 'files(id, name, mimeType)',
-        orderBy: 'modifiedTime desc',
-        pageSize: 5
-      })
-      const files2 = res2.data.files || []
-      return files2.length > 0 ? (files2[0] as any) : null
+    // Also extract just the street name (skip number)
+    const words = address.split(' ')
+    if (words.length > 1) {
+      searchTerms.push(words[1]) // e.g. "Sheffield"
     }
 
-    return files[0] as any
+    for (const term of searchTerms) {
+      if (!term || term.length < 3) continue
+      
+      // Search in root and all locations
+      const res = await drive.files.list({
+        q: `name contains '${term}' and trashed = false`,
+        fields: 'files(id, name, mimeType, modifiedTime)',
+        orderBy: 'modifiedTime desc',
+        pageSize: 10
+      })
+
+      const files = (res.data.files || []).filter((f: any) => 
+        f.mimeType === 'application/pdf' || 
+        (f.name && (f.name.toLowerCase().endsWith('.pdf') || f.name.includes('Electrical') || f.name.includes('Smoke')))
+      )
+      
+      if (files.length > 0) {
+        return files[0] as any
+      }
+    }
+
+    return null
   } catch (error) {
     console.error('Drive search error:', error)
     return null
