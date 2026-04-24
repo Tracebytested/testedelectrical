@@ -292,7 +292,7 @@ export async function POST(req: NextRequest) {
       await replyTo(from, `Searching Google Drive... give me a moment`)
 
       // Step 1: Detect unit number references e.g. "unit 1 sheffield" "unit 2 sheffield"
-      const unitRefs = [...body.matchAll(/unit\s*(\d+)\s+([A-Za-z]+)/gi)]
+      const unitRefs = Array.from(body.matchAll(/unit\s*(\d+)\s+([A-Za-z]+)/gi))
       const foundFiles: Array<{ file: any; buffer: Buffer }> = []
 
       if (unitRefs.length > 0) {
