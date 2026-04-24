@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processJobUpdateSMS, generateReportFromDescription, processCreateWorkOrderSMS } from '@/lib/ai'
-import { findInspectionReport, findAllInspectionReports, findUnitReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
+import { findAllInspectionReports, findUnitReport, downloadDriveFile, getRecentJobPhotos } from '@/lib/drive'
 import { createCalendarEvent, parseBookingFromSMS } from '@/lib/calendar'
 import { sendSMS } from '@/lib/sms'
 import { generateReportPDF, generateInvoicePDF } from '@/lib/pdf'
@@ -33,11 +33,13 @@ const DRIVE_KEYWORDS = [
   'safety inspection report', 'send the certificate',
   'attach both reports', 'attach the reports', 'attach report',
   'reports i have made', 'reports i made', 'reports from my drive',
-  'files from drive', 'attach files', 'send the files'
+  'files from drive', 'attach files', 'send the files',
+  'i have made on google drive', 'i made on google drive',
+  'attach both', 'send both reports'
 ]
 
 const CALENDAR_KEYWORDS = [
-  'book', 'schedule', 'add to calendar', 'put in calendar',
+  'add to calendar', 'put in calendar',
   'schedule a job', 'add job to calendar', 'book for', 'schedule for',
   'book the job', 'diary', 'what have i got', 'whats on', "what's on"
 ]
@@ -59,20 +61,15 @@ const CREATE_KEYWORDS = [
 
 function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar' | 'unknown' {
   const lower = text.toLowerCase()
-
-  // Check DRIVE first — if they mention google drive or attaching reports, that takes priority
   for (const kw of DRIVE_KEYWORDS) {
     if (lower.includes(kw)) return 'drive'
   }
-  // Check CALENDAR next
   for (const kw of CALENDAR_KEYWORDS) {
     if (lower.includes(kw)) return 'calendar'
   }
-  // Then CREATE
   for (const kw of CREATE_KEYWORDS) {
     if (lower.includes(kw)) return 'create'
   }
-  // COMPLETE last — invoice/report keywords only if no drive/calendar intent
   for (const kw of COMPLETE_KEYWORDS) {
     if (lower.includes(kw)) return 'complete'
   }
@@ -89,9 +86,26 @@ function extractPrice(text: string): number {
   return match ? parseFloat(match[1]) : 0
 }
 
-function extractAddressFromText(text: string): string | null {
-  const match = text.match(/\d+\s+[A-Za-z\s]+(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent|Pl|Place)[,\s]+[A-Za-z]+/i)
-  return match ? match[0].trim() : null
+// Extract the primary street name from a message (skips common words)
+function extractStreetName(text: string): string {
+  const SKIP_WORDS = new Set([
+    'invoice', 'attach', 'both', 'reports', 'report', 'drive', 'google',
+    'send', 'made', 'have', 'unit', 'please', 'made', 'that', 'the',
+    'and', 'for', 'from', 'with', 'this', 'them', 'also', 'just'
+  ])
+  // Look for a proper noun that looks like a street name (4+ chars, not a skip word)
+  const words = text.replace(/[^a-zA-Z\s]/g, ' ').split(/\s+/)
+  for (const word of words) {
+    const lower = word.toLowerCase()
+    if (word.length >= 4 && !SKIP_WORDS.has(lower) && /^[A-Z]/.test(word)) {
+      return word
+    }
+  }
+  // Fallback: find any capitalised word
+  for (const word of words) {
+    if (word.length >= 4 && /^[A-Z]/.test(word)) return word
+  }
+  return ''
 }
 
 async function findJob(body: string): Promise<any | null> {
@@ -106,7 +120,6 @@ async function findJob(body: string): Promise<any | null> {
     )
     if (result.rows.length > 0) return result.rows[0]
   }
-
   const addressMatch = body.match(/(\d+\s+[A-Za-z]+\s+(?:st|street|rd|road|ave|avenue|blvd|drive|dr|ct|court|way|cres|crescent|pl|place)[,\s])/i)
   if (addressMatch) {
     const addressFragment = addressMatch[1].trim().replace(/,$/, '')
@@ -119,7 +132,6 @@ async function findJob(body: string): Promise<any | null> {
     )
     if (result.rows.length > 0) return result.rows[0]
   }
-
   const result = await query(
     `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
      FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
@@ -129,7 +141,6 @@ async function findJob(body: string): Promise<any | null> {
 }
 
 async function generateAndSendReportInvoice(job: any, body: string, from: string) {
-  // Fetch recent photos from Google Drive Work Images folder
   let photos: Buffer[] = []
   try {
     const photoFiles = await getRecentJobPhotos(job.site_address)
@@ -138,7 +149,6 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
         photoFiles.slice(0, 6).map((f: any) => downloadDriveFile(f.id).catch(() => null))
       )
       photos = photoBuffers.filter((b): b is Buffer => b !== null)
-      console.log('Found ' + photos.length + ' photos for report')
     }
   } catch (e) {
     console.error('Photo fetch error:', e)
@@ -157,7 +167,6 @@ async function generateAndSendReportInvoice(job: any, body: string, from: string
 
   const smsEmail = extractEmail(body)
   const clientEmail = smsEmail || job.client_email
-
   const reportNumber = await getNextReportNumber()
   const today = new Date()
 
@@ -273,173 +282,110 @@ export async function POST(req: NextRequest) {
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // DRIVE intent - find and send files from Google Drive
+    // DRIVE intent
     if (intent === 'drive') {
       const job = await findJob(body)
       const clientEmail = extractEmail(body) || job?.client_email
       const price = extractPrice(body)
+      const lower = body.toLowerCase()
 
       await replyTo(from, `Searching Google Drive... give me a moment`)
 
-      // Extract all addresses mentioned in the message
-      const addressMatches = body.match(/\d+\s+[A-Za-z\s]+(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Drive|Dr|Ct|Court|Way|Cres|Crescent|Pl|Place)[,\s]+[A-Za-z]+/gi) || []
-      const singleAddress = extractAddressFromText(body)
-      const jobAddress = job?.site_address
-
-      // Build list of addresses to search
-      const addressesToSearch: string[] = []
-      if (addressMatches.length > 0) {
-        addressesToSearch.push(...addressMatches.map((a: string) => a.trim()))
-      } else if (singleAddress) {
-        addressesToSearch.push(singleAddress)
-      } else if (jobAddress) {
-        addressesToSearch.push(jobAddress)
-      }
-
-      // Also check for "unit 1" and "unit 2" type references in the message
-      const unitMatches = body.match(/unit\s+\d+[,\s]+[A-Za-z0-9\s]+(?:St|Street|Rd|Road|Ave|Avenue)/gi) || []
-      if (unitMatches.length > 0 && addressesToSearch.length === 0) {
-        unitMatches.forEach((u: string) => addressesToSearch.push(u.trim()))
-      }
-
-      if (addressesToSearch.length === 0) {
-        await replyTo(from, `I need an address to find the reports. Include the property address and try again.`)
-        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
-      }
-
-      // Search for all files
+      // Step 1: Detect unit number references e.g. "unit 1 sheffield" "unit 2 sheffield"
+      const unitRefs = [...body.matchAll(/unit\s*(\d+)\s+([A-Za-z]+)/gi)]
       const foundFiles: Array<{ file: any; buffer: Buffer }> = []
-      const bodyLowerDrive = body.toLowerCase()
 
-      // Detect specific unit references like "unit 1 sheffield" and "unit 2 sheffield"
-      const unitRefs = body.match(/unit\s*(\d+)\s+([A-Za-z]+)/gi) || []
       if (unitRefs.length > 0) {
-        // Extract street name from message
-        const streetMatch = body.match(/(?:unit\s*\d+\s+)?([A-Za-z]{4,})/i)
-        const streetName = streetMatch ? streetMatch[1] : (addressesToSearch[0] || '')
-        
-        for (const unitRef of unitRefs) {
-          const unitNumMatch = unitRef.match(/unit\s*(\d+)/i)
-          const unitNum = unitNumMatch ? unitNumMatch[1] : ''
-          if (unitNum && streetName) {
-            const file = await findUnitReport(unitNum, streetName)
-            if (file && !foundFiles.find(f => f.file.id === file.id)) {
-              const buffer = await downloadDriveFile(file.id)
-              foundFiles.push({ file, buffer })
-            }
-          }
-        }
-      }
+        // Extract street name — skip common non-street words
+        const streetName = extractStreetName(body)
+        console.log('Unit refs found:', unitRefs.length, 'Street:', streetName)
 
-      // If unit search found files, skip the rest
-      
-      // If "both" or "unit 1 and unit 2" mentioned, do a broad search to get ALL matching files
-      if (foundFiles.length === 0) {
-      const wantMultiple = bodyLowerDrive.includes('both') || 
-        bodyLowerDrive.includes('unit 1 and unit 2') ||
-        bodyLowerDrive.includes('all reports') ||
-        bodyLowerDrive.includes('all the reports')
-
-      if (wantMultiple && addressesToSearch.length > 0) {
-        // Use broad search to get all files for this location
-        const searchAddr = addressesToSearch[0]
-        const allFiles = await findAllInspectionReports(searchAddr)
-        for (const file of allFiles) {
-          if (!foundFiles.find(f => f.file.id === file.id)) {
+        for (const match of unitRefs) {
+          const unitNum = match[1]
+          const searchStreet = streetName || match[2]
+          console.log('Searching unit', unitNum, 'at', searchStreet)
+          const file = await findUnitReport(unitNum, searchStreet)
+          if (file && !foundFiles.find(f => f.file.id === file.id)) {
+            console.log('Found:', file.name)
             const buffer = await downloadDriveFile(file.id)
             foundFiles.push({ file, buffer })
           }
         }
-      } else {
-        // Standard search - one file per address
-        for (const addr of addressesToSearch) {
-          const driveFile = await findInspectionReport(addr)
-          if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
-            const buffer = await downloadDriveFile(driveFile.id)
-            foundFiles.push({ file: driveFile, buffer })
+      }
+
+      // Step 2: If no unit refs or unit search failed, try broad street search
+      if (foundFiles.length === 0) {
+        const streetName = extractStreetName(body)
+        if (streetName) {
+          const allFiles = await findAllInspectionReports(streetName)
+          for (const file of allFiles) {
+            if (!foundFiles.find(f => f.file.id === file.id)) {
+              const buffer = await downloadDriveFile(file.id)
+              foundFiles.push({ file, buffer })
+              // If only asking for one, stop at 1; if "both" requested get up to 5
+              if (!lower.includes('both') && !lower.includes('all') && foundFiles.length >= 1) break
+            }
           }
         }
       }
 
-      // If still nothing found, try keyword search from the message
       if (foundFiles.length === 0) {
-        const keywords = body.match(/\b[A-Z][a-z]{3,}\b/g) || []
-        for (const kw of keywords.slice(0, 3)) {
-          if (wantMultiple) {
-            const allFiles = await findAllInspectionReports(kw)
-            for (const file of allFiles) {
-              if (!foundFiles.find(f => f.file.id === file.id)) {
-                const buffer = await downloadDriveFile(file.id)
-                foundFiles.push({ file, buffer })
-              }
-            }
-          } else {
-            const driveFile = await findInspectionReport(kw)
-            if (driveFile && !foundFiles.find(f => f.file.id === driveFile.id)) {
-              const buffer = await downloadDriveFile(driveFile.id)
-              foundFiles.push({ file: driveFile, buffer })
-            }
-          }
-          if (foundFiles.length >= 2) break
-        }
-      }
-      } // end unit search else
-
-      if (foundFiles.length === 0) {
-        await replyTo(from, `Couldn't find any matching reports in Google Drive. Check the file names include the address or property name.`)
+        await replyTo(from, `Couldn't find any matching reports in Google Drive. Check the file names include the street name.`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
 
       if (clientEmail) {
-        const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = 
+        // Build attachments with sanitized filenames
+        const attachments: Array<{ filename: string; content: Buffer; contentType: string }> =
           foundFiles.map(({ file, buffer }) => {
-            // Sanitize filename - replace slashes, ensure .pdf extension
-            let filename = file.name.replace(/\//g, '-').replace(/\\/g, '-')
+            let filename = (file.name as string).replace(/\//g, '-').replace(/\\/g, '-')
             if (!filename.toLowerCase().endsWith('.pdf')) filename += '.pdf'
             return { filename, content: buffer, contentType: 'application/pdf' }
           })
 
+        // Generate invoice if price mentioned
         let invoiceNote = ''
-        if (price > 0 && job) {
+        if (price > 0) {
           const invoiceNumber = await getNextInvoiceNumber()
+          const desc = `Inspection - ${extractStreetName(body) || 'Property'}`
           const { lineItems, subtotal, gst, total } = calculateLineItems([
-            { description: `Safety Inspection - ${addressesToSearch[0] || job?.site_address || 'Property'}`, qty: 1, rate: price }
+            { description: desc, qty: 1, rate: price }
           ])
-          await query(
-            `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
-            [invoiceNumber, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
-             new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
-          )
+          if (job) {
+            await query(
+              `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
+              [invoiceNumber, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
+               new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+            )
+          }
           const invPDF = await generateInvoicePDF({
             invoice_number: invoiceNumber, date: formatDate(new Date()),
-            bill_to_name: job?.client_name || 'Client', bill_to_address: addressesToSearch[0] || job?.site_address || '',
+            bill_to_name: job?.client_name || 'Client',
+            bill_to_address: job?.site_address || extractStreetName(body),
             line_items: lineItems, subtotal, gst, total
           })
           attachments.push({ filename: `Invoice_${invoiceNumber}.pdf`, content: invPDF, contentType: 'application/pdf' })
-          await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
+          if (job) await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
           invoiceNote = ` + Invoice ${invoiceNumber} ($${total.toFixed(2)} inc GST)`
         }
 
         const fileNames = foundFiles.map(f => f.file.name).join(', ')
-        const addressDesc = addressesToSearch.join(' & ') || 'requested property'
-
         await sendEmail({
           to: clientEmail,
-          subject: `Inspection Reports - ${addressDesc}`,
+          subject: `Inspection Reports - ${extractStreetName(body) || 'Property'}`,
           body: buildEmailHTML(`
             <p>Hi,</p>
-            <p>Please find attached the inspection report${foundFiles.length > 1 ? 's' : ''} for ${addressDesc}.</p>
-            ${price > 0 ? `<p>An invoice has also been included for $${(price * 1.1).toFixed(2)} inc GST, due within ${BUSINESS.payment_terms_days} days.</p>` : ''}
+            <p>Please find attached the inspection report${foundFiles.length > 1 ? 's' : ''} as requested.</p>
+            ${price > 0 ? `<p>Invoice included for $${(price * 1.1).toFixed(2)} inc GST, due within ${BUSINESS.payment_terms_days} days.</p>` : ''}
             <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
           `),
           attachments
         })
-
-        await replyTo(from, `Sent ${foundFiles.length} file${foundFiles.length > 1 ? 's' : ''} (${fileNames})${invoiceNote ? invoiceNote : ''} to ${clientEmail}`)
+        await replyTo(from, `Sent ${foundFiles.length} file${foundFiles.length > 1 ? 's' : ''}${invoiceNote} to ${clientEmail}\n${fileNames}`)
       } else {
         const fileNames = foundFiles.map(f => f.file.name).join(', ')
-        await replyTo(from, `Found ${foundFiles.length} file${foundFiles.length > 1 ? 's' : ''}: ${fileNames}. Reply with the client email to send them.`)
+        await replyTo(from, `Found: ${fileNames}\nReply with client email to send.`)
       }
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
@@ -451,26 +397,20 @@ export async function POST(req: NextRequest) {
         await replyTo(from, `I need a date to book this. Try: "Book electrical inspection at 45 Brown St for Monday 28 April at 9am"`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
-
       const job = await findJob(body)
       const event = await createCalendarEvent({
-        title: booking.title,
-        description: booking.description,
+        title: booking.title, description: booking.description,
         location: booking.location || job?.site_address,
-        startDate: booking.date,
-        startTime: booking.time,
-        jobNumber: job?.job_number
+        startDate: booking.date, startTime: booking.time, jobNumber: job?.job_number
       })
-
       if (event) {
         if (job) {
-          await query("UPDATE jobs SET scheduled_date=$1, status='active', updated_at=NOW() WHERE id=$2",
-            [booking.date, job.id])
+          await query("UPDATE jobs SET scheduled_date=$1, status='active', updated_at=NOW() WHERE id=$2", [booking.date, job.id])
         }
         const dateStr = new Date(booking.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })
-        await replyTo(from, `Booked! "${event.title}"\n${dateStr}${booking.time ? ' at ' + booking.time : ''}\n${booking.location || ''}\nAdded to Google Calendar.`)
+        await replyTo(from, `Booked! "${event.title}"\n${dateStr}${booking.time ? ' at ' + booking.time : ''}\nAdded to Google Calendar.`)
       } else {
-        await replyTo(from, `Couldn't add to calendar - make sure Google Calendar API is enabled in Google Cloud Console.`)
+        await replyTo(from, `Couldn't add to calendar - check Google Calendar API is enabled.`)
       }
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
