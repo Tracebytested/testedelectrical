@@ -16,6 +16,7 @@ interface InvoiceData {
   invoice_number: string
   date: string
   bill_to_name: string
+  bill_to_company?: string
   bill_to_address?: string
   line_items: LineItem[]
   subtotal: number
@@ -173,6 +174,11 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('white').text('BILL TO', 45, 134)
     doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a')
       .text(data.bill_to_name, 40, 148)
+    let billToY = 160
+    if (data.bill_to_company) {
+      doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(data.bill_to_company, 40, billToY)
+      billToY += 12
+    }
     if (data.bill_to_address) {
       data.bill_to_address.split('\n').forEach((line, i) => {
         doc.text(line, 40, 160 + (i * 12))
