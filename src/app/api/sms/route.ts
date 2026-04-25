@@ -44,6 +44,13 @@ const CALENDAR_KEYWORDS = [
   'book the job', 'diary', 'what have i got', 'whats on', "what's on"
 ]
 
+const INVOICE_ONLY_KEYWORDS = [
+  'just invoice', 'only invoice', 'invoice only', 'send an invoice',
+  'create an invoice', 'generate an invoice', 'make an invoice',
+  'invoice nathan', 'invoice me', 'invoice them for', 'invoice client for',
+  'send invoice for', 'please invoice'
+]
+
 const COMPLETE_KEYWORDS = [
   'just finished', 'just done', 'completed', 'all done', 'job done',
   'finished the', 'done the', 'wrapped up', 'just completed',
@@ -59,13 +66,16 @@ const CREATE_KEYWORDS = [
   'new job for', 'create job', 'log a job', 'book a job'
 ]
 
-function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar' | 'unknown' {
+function detectIntent(text: string): 'complete' | 'create' | 'drive' | 'calendar' | 'invoice_only' | 'unknown' {
   const lower = text.toLowerCase()
   for (const kw of DRIVE_KEYWORDS) {
     if (lower.includes(kw)) return 'drive'
   }
   for (const kw of CALENDAR_KEYWORDS) {
     if (lower.includes(kw)) return 'calendar'
+  }
+  for (const kw of INVOICE_ONLY_KEYWORDS) {
+    if (lower.includes(kw)) return 'invoice_only'
   }
   for (const kw of CREATE_KEYWORDS) {
     if (lower.includes(kw)) return 'create'
@@ -82,7 +92,11 @@ function extractEmail(text: string): string | null {
 }
 
 function extractPrice(text: string): number {
-  const match = text.match(/\$(\d+(?:\.\d{2})?)/)
+  // Handle formats: $400, $1,000, $1,000,000, $1.50
+  const match = text.match(/\$(\d[\d,]*(?:\.\d{1,2})?)/)
+  if (!match) return 0
+  return parseFloat(match[1].replace(/,/g, ''))
+})?)/)
   return match ? parseFloat(match[1]) : 0
 }
 
@@ -381,23 +395,19 @@ Return ONLY valid JSON.`
           try {
             const lineItemAI = await anthropic.messages.create({
               model: 'claude-sonnet-4-5',
-              max_tokens: 300,
+              max_tokens: 400,
               messages: [{
                 role: 'user',
-                content: `Extract invoice line items from this message. Total must equal $${price} ex GST.
-Message: "${body}"
-Return ONLY a JSON array of line items:
-- description (e.g. "Electrical Inspection", "Smoke Alarm Inspection")
-- qty (number)
-- rate (ex GST dollar amount, number)
-Make sure qty * rate adds up to ${price} total across all items.
-Return ONLY valid JSON array.`
+                content: 'Extract invoice line items from this message. Total ex GST must equal $' + price + '.\nMessage: "' + body + '"\nRules:\n- Every line item MUST have a non-zero rate\n- qty * rate must be > 0 for every row\n- All rates added up must equal ' + price + '\n- If multiple items mentioned, split the total proportionally\n- description should be clear and professional\nReturn ONLY a JSON array like: [{"description":"Electrical Inspection","qty":2,"rate":200},{"description":"Smoke Alarm Inspection","qty":1,"rate":80}]'
               }]
             })
             const aiText = lineItemAI.content[0].type === 'text' ? lineItemAI.content[0].text : '[]'
-            lineItemsRaw = JSON.parse(aiText.replace(/\`\`\`json|\`\`\`/g, '').trim())
+            lineItemsRaw = JSON.parse(aiText.replace(/```json|```/g, '').trim())
+            // Validate - ensure no zero rates
+            lineItemsRaw = lineItemsRaw.filter((item: any) => item.rate > 0 && item.qty > 0)
+            if (lineItemsRaw.length === 0) throw new Error('No valid line items')
           } catch {
-            lineItemsRaw = [{ description: 'Electrical Inspection Services', qty: 1, rate: price }]
+            lineItemsRaw = [{ description: 'Electrical Services', qty: 1, rate: price }]
           }
 
           const { lineItems, subtotal, gst, total } = calculateLineItems(lineItemsRaw)
@@ -461,6 +471,87 @@ Return ONLY valid JSON array.`
         await replyTo(from, `Booked! "${event.title}"\n${dateStr}${booking.time ? ' at ' + booking.time : ''}\nAdded to Google Calendar.`)
       } else {
         await replyTo(from, `Couldn't add to calendar - check Google Calendar API is enabled.`)
+      }
+      return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+    }
+
+    // INVOICE ONLY intent - generate invoice without report
+    if (intent === 'invoice_only') {
+      const job = await findJob(body)
+      const clientEmail = extractEmail(body) || job?.client_email
+      const price = extractPrice(body)
+
+      if (price === 0) {
+        await replyTo(from, `What amount should I invoice? Include a dollar amount like $400.`)
+        return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
+      }
+
+      // Extract custom email body if provided
+      const Anthropic2 = require('@anthropic-ai/sdk').default
+      const anthropic2 = new Anthropic2({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+      // Extract line items
+      let lineItemsRaw: Array<{ description: string; qty: number; rate: number }> = []
+      let customEmailBody = ''
+      try {
+        const invoiceAI = await anthropic2.messages.create({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 500,
+          messages: [{
+            role: 'user',
+            content: 'From this message extract: 1) Invoice line items (total must = $' + price + ' ex GST), 2) Any custom email body content the sender wants included.\nMessage: "' + body + '"\nReturn ONLY JSON: {"lineItems": [{"description":"...","qty":1,"rate":0}], "emailBody": "custom message or empty string"}\nEvery line item must have rate > 0.'
+          }]
+        })
+        const aiText = invoiceAI.content[0].type === 'text' ? invoiceAI.content[0].text : '{}'
+        const parsed = JSON.parse(aiText.replace(/```json|```/g, '').trim())
+        lineItemsRaw = (parsed.lineItems || []).filter((i: any) => i.rate > 0 && i.qty > 0)
+        customEmailBody = parsed.emailBody || ''
+        if (lineItemsRaw.length === 0) throw new Error('no items')
+      } catch {
+        lineItemsRaw = [{ description: 'Electrical Services', qty: 1, rate: price }]
+      }
+
+      const { lineItems, subtotal, gst, total } = calculateLineItems(lineItemsRaw)
+      const invoiceNumber = await getNextInvoiceNumber()
+      const today = new Date()
+
+      if (job) {
+        await query(
+          `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)`,
+          [invoiceNumber, job.id, job.client_id, JSON.stringify(lineItems), subtotal, gst, total,
+           new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)]
+        )
+      }
+
+      const invoicePDF = await generateInvoicePDF({
+        invoice_number: invoiceNumber, date: formatDate(today),
+        bill_to_name: job?.client_name || 'Client',
+        bill_to_address: job?.site_address || '',
+        line_items: lineItems, subtotal, gst, total
+      })
+
+      if (clientEmail) {
+        const emailContent = customEmailBody
+          ? `<p>${customEmailBody.replace(/
+/g, '<br>')}</p>`
+          : `<p>Please find attached invoice ${invoiceNumber} for $${total.toFixed(2)} inc GST.</p>`
+
+        await sendEmail({
+          to: clientEmail,
+          subject: `Invoice ${invoiceNumber} - Tested Electrical`,
+          body: buildEmailHTML(`
+            ${emailContent}
+            <p>Nathan<br>${BUSINESS.phone}<br>${BUSINESS.name}</p>
+          `),
+          attachments: [
+            { filename: `Invoice_${invoiceNumber}.pdf`, content: invoicePDF, contentType: 'application/pdf' }
+          ]
+        })
+        if (job) await query("UPDATE invoices SET status='sent', sent_at=NOW() WHERE invoice_number=$1", [invoiceNumber])
+        await replyTo(from, `Invoice ${invoiceNumber} ($${total.toFixed(2)} inc GST) sent to ${clientEmail}`)
+      } else {
+        await replyTo(from, `Invoice ${invoiceNumber} ($${total.toFixed(2)} inc GST) saved. No email on file - reply with client email to send.`)
       }
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
