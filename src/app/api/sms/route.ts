@@ -96,6 +96,8 @@ function extractPrice(text: string): number {
   const match = text.match(/\$(\d[\d,]*(?:\.\d{1,2})?)/)
   if (!match) return 0
   return parseFloat(match[1].replace(/,/g, ''))
+})?)/)
+  return match ? parseFloat(match[1]) : 0
 }
 
 // Extract the street name from a message
@@ -132,6 +134,7 @@ function extractStreetName(text: string): string {
 }
 
 async function findJob(body: string): Promise<any | null> {
+  // Try job reference number first
   const jobRefMatch = body.match(/([JW]O?[-#]?\d{3,6})/i)
   if (jobRefMatch) {
     const ref = jobRefMatch[1]
@@ -143,6 +146,8 @@ async function findJob(body: string): Promise<any | null> {
     )
     if (result.rows.length > 0) return result.rows[0]
   }
+
+  // Try address match
   const addressMatch = body.match(/(\d+\s+[A-Za-z]+\s+(?:st|street|rd|road|ave|avenue|blvd|drive|dr|ct|court|way|cres|crescent|pl|place)[,\s])/i)
   if (addressMatch) {
     const addressFragment = addressMatch[1].trim().replace(/,$/, '')
@@ -155,6 +160,23 @@ async function findJob(body: string): Promise<any | null> {
     )
     if (result.rows.length > 0) return result.rows[0]
   }
+
+  // Try client name match - e.g. "invoice nathan" or "invoice kfc"
+  const words = body.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3)
+  const skipWords = new Set(['invoice', 'report', 'send', 'attach', 'beezy', 'hey', 'please', 'and', 'the', 'for', 'client'])
+  for (const word of words) {
+    if (skipWords.has(word)) continue
+    const result = await query(
+      `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
+       FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
+       WHERE c.name ILIKE $1
+       ORDER BY j.created_at DESC LIMIT 1`,
+      [`%${word}%`]
+    )
+    if (result.rows.length > 0) return result.rows[0]
+  }
+
+  // Fall back to most recent active/pending job
   const result = await query(
     `SELECT j.*, c.name as client_name, c.email as client_email, j.agency_contact
      FROM jobs j LEFT JOIN clients c ON j.client_id = c.id
@@ -374,6 +396,40 @@ Return ONLY valid JSON.`
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
 
+      // Use AI to extract recipient details from message if not found via job
+      let driveClientName = job?.client_name || 'Client'
+      let driveClientAddress = job?.site_address || ''
+      if (!clientEmail || !job) {
+        try {
+          const recipientAI = await anthropic.messages.create({
+            model: 'claude-sonnet-4-5',
+            max_tokens: 200,
+            messages: [{
+              role: 'user',
+              content: 'Extract recipient details from this message.\nMessage: "' + body + '"\nReturn ONLY JSON: {"name": "person or company name", "email": "email if mentioned", "address": "address if mentioned"}\nIf not found leave as empty string.'
+            }]
+          })
+          const aiText = recipientAI.content[0].type === 'text' ? recipientAI.content[0].text : '{}'
+          const parsed = JSON.parse(aiText.replace(/```json|```/g, '').trim())
+          if (parsed.email && !clientEmail) clientEmail = parsed.email
+          if (parsed.name) driveClientName = parsed.name
+          if (parsed.address) driveClientAddress = parsed.address
+          // Also search clients table by extracted name
+          if (!clientEmail && parsed.name) {
+            const nameWords = parsed.name.split(' ')
+            for (const word of nameWords) {
+              if (word.length < 3) continue
+              const cr = await query('SELECT email, name FROM clients WHERE name ILIKE $1 LIMIT 1', [`%${word}%`])
+              if (cr.rows.length > 0 && cr.rows[0].email) {
+                clientEmail = cr.rows[0].email
+                driveClientName = cr.rows[0].name
+                break
+              }
+            }
+          }
+        } catch {}
+      }
+
       if (clientEmail) {
         // Build attachments with sanitized filenames
         const attachments: Array<{ filename: string; content: Buffer; contentType: string }> =
@@ -473,16 +529,61 @@ Return ONLY valid JSON.`
       return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
     }
 
-    // INVOICE ONLY intent - generate invoice without report
+    // INVOICE ONLY intent - generate invoice without report, no job required
     if (intent === 'invoice_only') {
-      const job = await findJob(body)
-      const clientEmail = extractEmail(body) || job?.client_email
       const price = extractPrice(body)
 
       if (price === 0) {
         await replyTo(from, `What amount should I invoice? Include a dollar amount like $400.`)
         return new NextResponse('<?xml version="1.0"?><Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
       }
+
+      // Use AI to extract all billing details from the message
+      const Anthropic3 = require('@anthropic-ai/sdk').default
+      const anthropic3 = new Anthropic3({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+      let clientEmail = extractEmail(body)
+      let clientName = 'Client'
+      let billToName = ''
+      let clientAddress = ''
+
+      try {
+        const billingAI = await anthropic3.messages.create({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 300,
+          messages: [{
+            role: 'user',
+            content: 'Extract billing details from this invoice request.\nMessage: "' + body + '"\nReturn ONLY JSON:\n- clientName: company or agency name (who gets the email, e.g. "JJ Property")\n- billToName: person liable for payment (property owner, e.g. "James Blake")\n- email: email address if mentioned\n- address: site or billing address if mentioned\nIf no separate owner mentioned, use clientName for billToName too.'
+          }]
+        })
+        const aiText = billingAI.content[0].type === 'text' ? billingAI.content[0].text : '{}'
+        const parsed = JSON.parse(aiText.replace(/```json|```/g, '').trim())
+        if (parsed.clientName) clientName = parsed.clientName
+        if (parsed.billToName) billToName = parsed.billToName
+        if (parsed.email && !clientEmail) clientEmail = parsed.email
+        if (parsed.address) clientAddress = parsed.address
+      } catch {}
+
+      // Search clients table - get email AND company name
+      let companyName: string | undefined
+      const searchNames = [clientName, billToName].filter(Boolean)
+      for (const name of searchNames) {
+        const words = name.split(' ').filter((w: string) => w.length >= 3)
+        for (const word of words) {
+          const cr = await query('SELECT email, name, company FROM clients WHERE name ILIKE $1 LIMIT 1', [`%${word}%`])
+          if (cr.rows.length > 0) {
+            if (!clientEmail && cr.rows[0].email) clientEmail = cr.rows[0].email
+            if (cr.rows[0].company) companyName = cr.rows[0].company
+            else companyName = cr.rows[0].name // use client name as company if no separate company field
+            if (!clientName || clientName === 'Client') clientName = cr.rows[0].name
+            break
+          }
+        }
+        if (clientEmail || companyName) break
+      }
+
+      // billToName defaults to clientName if not separately specified
+      if (!billToName) billToName = clientName
 
       // Extract custom email body if provided
       const Anthropic2 = require('@anthropic-ai/sdk').default
@@ -531,7 +632,8 @@ Return ONLY valid JSON.`
 
       if (clientEmail) {
         const emailContent = customEmailBody
-          ? `<p>${customEmailBody.replace(/\n/g, '<br>')}</p>`
+          ? `<p>${customEmailBody.replace(/
+/g, '<br>')}</p>`
           : `<p>Please find attached invoice ${invoiceNumber} for $${total.toFixed(2)} inc GST.</p>`
 
         await sendEmail({
