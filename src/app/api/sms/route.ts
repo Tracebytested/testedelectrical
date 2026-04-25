@@ -96,7 +96,8 @@ function extractPrice(text: string): number {
   const match = text.match(/\$(\d[\d,]*(?:\.\d{1,2})?)/)
   if (!match) return 0
   return parseFloat(match[1].replace(/,/g, ''))
-// Extract the street name from a message
+
+  // Extract the street name from a message
 function extractStreetName(text: string): string {
   const SKIP_WORDS = new Set([
     'invoice', 'attach', 'both', 'reports', 'report', 'drive', 'google',
