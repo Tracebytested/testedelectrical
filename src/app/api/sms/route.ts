@@ -95,7 +95,7 @@ function extractPrice(text: string): number {
   // Handle formats: $400, $1,000, $1,000,000, $1.50
   const match = text.match(/\$(\d[\d,]*(?:\.\d{1,2})?)/)
   if (!match) return 0
-  return parseFloat(match[1].replace(/,/g, ''))})?)/)return match ? parseFloat(match[1]) : 0
+  return parseFloat(match[1].replace(/,/g, ''))
   }
 
 // Extract the street name from a message
