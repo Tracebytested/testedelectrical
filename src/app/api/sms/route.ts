@@ -531,8 +531,7 @@ Return ONLY valid JSON.`
 
       if (clientEmail) {
         const emailContent = customEmailBody
-          ? `<p>${customEmailBody.replace(/
-/g, '<br>')}</p>`
+          ? `<p>${customEmailBody.replace(/\n/g, '<br>')}</p>`
           : `<p>Please find attached invoice ${invoiceNumber} for $${total.toFixed(2)} inc GST.</p>`
 
         await sendEmail({
