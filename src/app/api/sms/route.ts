@@ -328,7 +328,7 @@ export async function POST(req: NextRequest) {
     // DRIVE intent
     if (intent === 'drive') {
       const job = await findJob(body)
-      const clientEmail = extractEmail(body) || job?.client_email
+      let clientEmail = extractEmail(body) || job?.client_email
       const price = extractPrice(body)
 
       await replyTo(from, `Searching Google Drive... give me a moment`)
