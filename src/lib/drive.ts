@@ -179,7 +179,7 @@ export async function findAllInspectionReports(searchTerm: string): Promise<Arra
   try {
     const drive = google.drive({ version: 'v3', auth: getAuth() })
     const res = await drive.files.list({
-      q: `name contains '${searchTerm}' and mimeType = 'application/pdf' and trashed = false`,
+      q: `name contains '${searchTerm}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
       fields: 'files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
       pageSize: 10
