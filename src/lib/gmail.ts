@@ -148,22 +148,23 @@ export async function sendEmail({
 }
 
 export function buildEmailHTML(body: string): string {
+  const logoUrl = BUSINESS.website + '/logo.png'
   return `
 <!DOCTYPE html>
 <html>
 <head>
 <style>
   body { font-family: Arial, sans-serif; color: #333; font-size: 14px; line-height: 1.6; }
-  .header { background: #1a1a1a; padding: 20px 30px; }
-  .header h1 { color: #F5C400; margin: 0; font-size: 20px; }
-  .header p { color: #aaa; margin: 4px 0 0; font-size: 12px; }
+  .header { background: #1a56db; padding: 20px 30px; text-align: center; }
+  .header img { max-width: 180px; height: auto; }
+  .header p { color: rgba(255,255,255,0.8); margin: 8px 0 0; font-size: 12px; }
   .content { padding: 30px; }
   .footer { background: #f5f5f5; padding: 15px 30px; font-size: 12px; color: #777; border-top: 1px solid #e5e5e5; }
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>TESTED Electrical</h1>
+  <img src="${logoUrl}" alt="Tested Electrical" />
   <p>Electrical & Communications Services</p>
 </div>
 <div class="content">${body}</div>
