@@ -11,6 +11,7 @@ const nav = [
   { href: '/dashboard/invoices', label: 'Invoices', icon: '💰' },
   { href: '/dashboard/reports', label: 'Reports', icon: '📄' },
   { href: '/dashboard/clients', label: 'Clients', icon: '👥' },
+  { href: '/dashboard/licences', label: 'Licences', icon: '📋' },
 ]
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
