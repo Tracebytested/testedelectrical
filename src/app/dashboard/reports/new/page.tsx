@@ -90,7 +90,7 @@ export default function NewReportPage() {
   )
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-4 lg:p-6 max-w-3xl mx-auto">
       <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-600 mb-4">← Back</button>
       <h1 className="text-2xl font-bold text-gray-900 mb-6">New Report</h1>
 
@@ -107,7 +107,7 @@ export default function NewReportPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Client</label>
             <select value={form.client_id} onChange={e => setForm({...form, client_id: e.target.value})}
