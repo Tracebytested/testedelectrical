@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
       await sendEmail({
         to: email,
         subject: results.join(' + ') + ' - Tested Electrical',
-        body: buildEmailHTML(emailBody + '<p>Nathan<br>' + BUSINESS.phone + '<br>' + BUSINESS.name + '</p>'),
+        body: buildEmailHTML(emailBody + '<p>Any questions or issues opening please let me know.</p><p>Kind Regards,<br>Nathan\'s Assistant B</p>'),
         attachments
       })
       await reply(from, results.join(', ') + ' sent to ' + email)
