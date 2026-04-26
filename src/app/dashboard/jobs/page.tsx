@@ -39,7 +39,7 @@ export default function JobsPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 lg:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
         <Link
@@ -73,7 +73,7 @@ export default function JobsPage() {
             <p className="text-sm">Check emails or create a job manually</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">Job</th>
@@ -115,7 +115,7 @@ export default function JobsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
     </div>
