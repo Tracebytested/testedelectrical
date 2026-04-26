@@ -148,7 +148,7 @@ export async function sendEmail({
 }
 
 export function buildEmailHTML(body: string): string {
-  const logoUrl = BUSINESS.website + '/logo.png'
+  const logoUrl = (process.env.APP_URL || 'https://testedelectrical-production.up.railway.app') + '/logo.png'
   return `
 <!DOCTYPE html>
 <html>
