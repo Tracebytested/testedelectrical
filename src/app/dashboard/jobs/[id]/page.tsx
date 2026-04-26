@@ -117,7 +117,7 @@ export default function JobDetailPage() {
   const hasQuote = relatedDocs.quotes.length > 0
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-4 lg:p-6 max-w-3xl mx-auto">
       <button onClick={() => router.back()} className="text-sm text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1">← Back</button>
 
       {/* Job header */}
@@ -197,7 +197,7 @@ export default function JobDetailPage() {
       )}
 
       {/* Generate new docs */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4">
         <ActionBtn label={hasQuote ? '📋 New Quote' : '📋 Generate Quote'} onClick={() => setAction(action === 'quote' ? null : 'quote')} active={action === 'quote'} />
         <ActionBtn label={hasReport ? '📄 New Report' : '📄 Generate Report'} onClick={() => setAction(action === 'report' ? null : 'report')} active={action === 'report'} />
         <ActionBtn label={hasInvoice ? '💰 New Invoice' : '💰 Generate Invoice'} onClick={() => setAction(action === 'invoice' ? null : 'invoice')} active={action === 'invoice'} />
