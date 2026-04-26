@@ -19,6 +19,7 @@ const statusColour: Record<string, string> = {
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [licences, setLicences] = useState<any[]>([])
   const [aiMsg, setAiMsg] = useState('')
   const [aiReply, setAiReply] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -27,6 +28,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
 
   const loadStats = () => {
+    fetch('/api/licences').then(r => r.json()).then(d => setLicences(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/dashboard?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
@@ -204,6 +206,31 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Licences & Insurance */}
+      {licences.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-gray-900">Licences & Insurance</h3>
+            <a href="/dashboard/licences" className="text-xs text-blue-600 hover:text-blue-800">Manage</a>
+          </div>
+          <div className="space-y-2">
+            {licences.map((lic: any) => {
+              const now = new Date(); now.setHours(0,0,0,0)
+              const exp = new Date(lic.expiry_date)
+              const diff = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
+              const colour = diff < 0 ? 'bg-red-100 text-red-800' : diff <= 7 ? 'bg-orange-100 text-orange-800' : diff <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+              const label = diff < 0 ? 'Expired' : diff <= 7 ? diff + 'd left' : diff <= 30 ? diff + 'd left' : 'In Date'
+              return (
+                <div key={lic.id} className="flex items-center justify-between py-1.5">
+                  <div className="text-sm text-gray-700">{lic.name}</div>
+                  <span className={'text-xs px-2 py-0.5 rounded-full font-medium ' + colour}>{label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
