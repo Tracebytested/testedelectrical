@@ -79,7 +79,7 @@ export default function ClientsPage() {
   )
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 lg:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
         <button onClick={() => { setShowAdd(!showAdd); setEditing(null) }}
@@ -134,7 +134,7 @@ export default function ClientsPage() {
         ) : clients.length === 0 ? (
           <div className="py-12 text-center text-gray-400">No clients yet.</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="text-left px-5 py-3 text-gray-500 font-medium">Name</th>
@@ -172,7 +172,7 @@ export default function ClientsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </div>
     </div>
