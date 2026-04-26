@@ -216,22 +216,7 @@ export async function POST(req: NextRequest) {
         }))
       } catch (e) { console.error('SMS error:', e) }
 
-      // Auto-acknowledge
-      if (workOrder.contact_email) {
-        try {
-          const replyBody = await generateEmailReply({
-            originalEmail: email.body,
-            purpose: 'acknowledge_work_order',
-            clientName: workOrder.client || 'Team',
-            jobTitle
-          })
-          await sendEmail({
-            to: workOrder.contact_email,
-            subject: `RE: ${email.subject}`,
-            body: buildEmailHTML(`<p>${replyBody.replace(/\n/g, '</p><p>')}</p>`)
-          })
-        } catch (e) { console.error('Reply error:', e) }
-      }
+      // Auto-acknowledge disabled - was causing issues with agencies
 
       processed.push({ jobNumber, title: jobTitle, client: workOrder.client })
     }
