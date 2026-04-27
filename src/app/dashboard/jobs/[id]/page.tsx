@@ -12,6 +12,7 @@ export default function JobDetailPage() {
   const [working, setWorking] = useState(false)
   const [message, setMessage] = useState('')
   const [relatedDocs, setRelatedDocs] = useState<{ reports: any[], invoices: any[], quotes: any[] }>({ reports: [], invoices: [], quotes: [] })
+  const [photos, setPhotos] = useState<string[]>([])
 
   useEffect(() => {
     fetch(`/api/jobs`).then(r => r.json()).then(data => {
@@ -34,6 +35,11 @@ export default function JobDetailPage() {
         quotes: (Array.isArray(quotes) ? quotes : []).filter((q: any) => q.job_id === jobId),
       })
     })
+
+    // Load job photos from Google Drive
+    fetch('/api/photos?job_id=' + id).then(r => r.json()).then(data => {
+      if (Array.isArray(data)) setPhotos(data)
+    }).catch(() => {})
   }, [id])
 
   const updateStatus = async (status: string) => {
@@ -193,6 +199,20 @@ export default function JobDetailPage() {
               }}
             />
           ))}
+        </div>
+      )}
+
+      {/* Photos */}
+      {photos.length > 0 && (
+        <div className="mb-4 bg-white rounded-2xl border border-gray-100 p-4">
+          <h3 className="font-medium text-sm text-gray-900 mb-3">Site Photos ({photos.length})</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {photos.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                <img src={url} alt={'Photo ' + (i + 1)} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+              </a>
+            ))}
+          </div>
         </div>
       )}
 
