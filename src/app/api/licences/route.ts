@@ -12,6 +12,8 @@ export async function GET() {
       reminder_sent_1month BOOLEAN DEFAULT false, reminder_sent_1week BOOLEAN DEFAULT false,
       notes TEXT, created_at TIMESTAMP DEFAULT NOW()
     )`)
+    // Fix existing table constraints
+    await query("ALTER TABLE licences ALTER COLUMN expiry_date DROP NOT NULL").catch(() => {})
     // Add columns if they don't exist (for existing tables)
     await query("ALTER TABLE licences ADD COLUMN IF NOT EXISTS issue_date DATE").catch(() => {})
     await query("ALTER TABLE licences ADD COLUMN IF NOT EXISTS no_expiry BOOLEAN DEFAULT false").catch(() => {})
