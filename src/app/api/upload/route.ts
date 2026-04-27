@@ -11,17 +11,14 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Save to public/uploads
     const uploadsDir = path.join(process.cwd(), 'public', 'uploads')
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
     const ext = file.name.split('.').pop() || 'jpg'
     const filename = Date.now() + '-' + Math.random().toString(36).substring(7) + '.' + ext
-    const filepath = path.join(uploadsDir, filename)
-    fs.writeFileSync(filepath, buffer)
+    fs.writeFileSync(path.join(uploadsDir, filename), buffer)
 
-    const url = '/uploads/' + filename
-    return NextResponse.json({ url })
+    return NextResponse.json({ url: '/uploads/' + filename, type: file.type })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
