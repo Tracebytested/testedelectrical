@@ -55,6 +55,7 @@ export default function LicencesPage() {
       const res = await fetch('/api/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (data.url) setImageUrl(data.url)
+      if (data.error) console.error('Upload error:', data.error)
     } catch {}
     setUploading(false)
   }
@@ -163,8 +164,8 @@ export default function LicencesPage() {
               <span className="text-sm font-medium text-gray-700">Document Preview</span>
               <button onClick={() => setViewImage(null)} className="text-gray-400 hover:text-gray-700 text-xl">&#10005;</button>
             </div>
-            {viewImage.toLowerCase().endsWith('.pdf') ? (
-              <iframe src={viewImage} className="w-full" style={{height: '80vh'}} />
+            {viewImage.includes('.pdf') || viewImage.includes('drive.google.com') ? (
+              <iframe src={viewImage} className="w-full" style={{height: '80vh', minWidth: '600px'}} />
             ) : (
               <img src={viewImage} alt="Document" className="max-w-full rounded-lg" />
             )}
@@ -192,11 +193,8 @@ export default function LicencesPage() {
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     {item.image_url ? (
-                      <button onClick={() => setViewImage(item.image_url)} className="w-8 h-8 rounded-lg bg-gray-100 overflow-hidden hover:ring-2 ring-blue-300 flex items-center justify-center">
-                        {item.image_url.toLowerCase().endsWith('.pdf')
-                          ? <span className="text-red-500 text-xs font-bold">PDF</span>
-                          : <img src={item.image_url} alt="" className="w-full h-full object-cover" />
-                        }
+                      <button onClick={() => setViewImage(item.image_url)} className="w-8 h-8 rounded-lg bg-blue-50 overflow-hidden hover:ring-2 ring-blue-300 flex items-center justify-center">
+                        <span className="text-blue-600 text-xs font-bold">View</span>
                       </button>
                     ) : (
                       <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-300 text-xs">—</div>
