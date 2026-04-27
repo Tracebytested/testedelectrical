@@ -59,13 +59,22 @@ export async function POST(req: NextRequest) {
 
     await query('INSERT INTO sms_log (direction, from_number, to_number, body) VALUES ($1,$2,$3,$4)', ['inbound', from, process.env.TWILIO_PHONE_NUMBER, body])
 
+    // Fetch recent conversation history for context
+    const recentMessages = await query(
+      "SELECT direction, body, created_at FROM sms_log WHERE (from_number = $1 OR to_number = $1) AND created_at > NOW() - INTERVAL '30 minutes' ORDER BY created_at DESC LIMIT 6",
+      [from]
+    )
+    const conversationHistory = recentMessages.rows.reverse().map((m: any) =>
+      (m.direction === 'inbound' ? 'Nathan: ' : 'Beezy: ') + m.body
+    ).join('\n')
+
     // ============================================================
     // STEP 1: AI interprets the ENTIRE message and decides actions
     // ============================================================
     const today = new Date().toISOString().split('T')[0]
     const aiPlan = await anthropic.messages.create({
       model: 'claude-sonnet-4-5', max_tokens: 800,
-      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '.\n\nNathan sent this SMS: "' + body.replace(/"/g, "'") + '"\n\nAnalyse what Nathan wants and return ONLY valid JSON:\n{\n  "actions": ["create_job", "generate_report", "generate_invoice", "generate_quote", "attach_from_drive", "book_calendar", "general_reply"],\n  "driveSearchTerms": ["search term 1"],\n  "driveRecentOnly": false,\n  "clientName": "company/agency name",\n  "billToName": "person liable for payment if different from client",\n  "recipientEmail": "email if mentioned",\n  "siteAddress": "address if mentioned",\n  "price": 0,\n  "lineItems": [{"description": "...", "qty": 1, "rate": 100}],\n  "customEmailBody": "custom email text if Nathan specified what the email should say",\n  "jobDescription": "description of work if creating a job",\n  "jobTitle": "brief job title",\n  "calendarDate": "YYYY-MM-DD if booking",\n  "calendarTime": "HH:MM if mentioned",\n  "reportDescription": "what was done for the report",\n  "reply": "brief SMS reply to Nathan if just a general question"\n}\n\nRules:\n- actions is an array - multiple actions can happen (e.g. attach_from_drive + generate_invoice)\n- lineItems must have rate > 0 for every row, qty * rate across all rows must equal the total price\n- If Nathan says "invoice for $X" thats generate_invoice, NOT generate_report\n- If Nathan says "generate a report" thats generate_report\n- If Nathan says both report and invoice, include both in actions\n- driveSearchTerms should be the street name or property identifier only\n- Only include actions Nathan actually asked for\n- price should be the ex GST amount Nathan specified' }]
+      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '.\n\nRecent conversation:\n' + conversationHistory + '\n\n\nNathan sent this SMS: "' + body.replace(/"/g, "'") + '"\n\nAnalyse what Nathan wants and return ONLY valid JSON:\n{\n  "actions": ["create_job", "generate_report", "generate_invoice", "generate_quote", "attach_from_drive", "book_calendar", "general_reply"],\n  "driveSearchTerms": ["search term 1"],\n  "driveRecentOnly": false,\n  "clientName": "company/agency name",\n  "billToName": "person liable for payment if different from client",\n  "recipientEmail": "email if mentioned",\n  "siteAddress": "address if mentioned",\n  "price": 0,\n  "lineItems": [{"description": "...", "qty": 1, "rate": 100}],\n  "customEmailBody": "custom email text if Nathan specified what the email should say",\n  "jobDescription": "description of work if creating a job",\n  "jobTitle": "brief job title",\n  "calendarDate": "YYYY-MM-DD if booking",\n  "calendarTime": "HH:MM if mentioned",\n  "reportDescription": "what was done for the report",\n  "reply": "brief SMS reply to Nathan if just a general question"\n}\n\nRules:\n- actions is an array - multiple actions can happen (e.g. attach_from_drive + generate_invoice)\n- lineItems must have rate > 0 for every row, qty * rate across all rows must equal the total price\n- If Nathan says "invoice for $X" thats generate_invoice, NOT generate_report\n- If Nathan says "generate a report" thats generate_report\n- If Nathan says both report and invoice, include both in actions\n- driveSearchTerms should be the street name or property identifier only\n- Only include actions Nathan actually asked for\n- price should be the ex GST amount Nathan specified' }]
     })
 
     let plan: any = {}
