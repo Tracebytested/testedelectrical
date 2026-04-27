@@ -20,6 +20,7 @@ const statusColour: Record<string, string> = {
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [licences, setLicences] = useState<any[]>([])
+  const [usage, setUsage] = useState<any[]>([])
   const [aiMsg, setAiMsg] = useState('')
   const [aiReply, setAiReply] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -28,6 +29,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
 
   const loadStats = () => {
+    fetch('/api/usage').then(r => r.json()).then(d => setUsage(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/licences').then(r => r.json()).then(d => setLicences(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/dashboard?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
@@ -228,6 +230,30 @@ export default function DashboardPage() {
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+      {/* Service Usage */}
+      {usage.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 mt-4">
+          <h3 className="font-semibold text-gray-900 mb-3">Service Usage (this month)</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {usage.map((svc: any, i: number) => (
+              <div key={i} className="border border-gray-100 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">{svc.icon}</span>
+                  <span className="text-sm font-medium text-gray-900">{svc.name}</span>
+                </div>
+                <div className="text-lg font-bold text-gray-900">{svc.used}</div>
+                {svc.cost && <div className="text-xs text-gray-500">{svc.cost}</div>}
+                {svc.details && <div className="text-xs text-gray-400 mt-1">{svc.details}</div>}
+                {svc.percentage > 0 && (
+                  <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className={'h-full rounded-full transition-all ' + (svc.status === 'critical' ? 'bg-red-500' : svc.status === 'warning' ? 'bg-amber-500' : 'bg-green-500')} style={{width: Math.min(svc.percentage, 100) + '%'}} />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
