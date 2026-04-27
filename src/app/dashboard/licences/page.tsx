@@ -63,8 +63,11 @@ export default function LicencesPage() {
     if (!name) return
     if (!noExpiry && !expiry) return
     setSaving(true)
-    const payload = { name, type, licence_number: licNum, issue_date: issueDate || null, expiry_date: noExpiry ? null : expiry, no_expiry: noExpiry, image_url: imageUrl || null, notes, id: editId }
-    await fetch('/api/licences', { method: editId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    const payload: any = { name, type, licence_number: licNum, issue_date: issueDate || null, expiry_date: noExpiry ? null : (expiry || null), no_expiry: noExpiry, image_url: imageUrl || null, notes: notes || null }
+    if (editId) payload.id = editId
+    const res = await fetch('/api/licences', { method: editId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    const result = await res.json()
+    console.log('Save result:', result)
     clearForm(); setSaving(false); load()
   }
 
@@ -83,7 +86,7 @@ export default function LicencesPage() {
     <div className="p-4 lg:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Licences & Insurance</h1>
-        <button onClick={() => { setShowAdd(true); setEditId(null); clearForm(); setShowAdd(true) }}
+        <button onClick={() => { setEditId(null); setName(''); setType('licence'); setLicNum(''); setIssueDate(''); setExpiry(''); setNoExpiry(false); setImageUrl(''); setNotes(''); setShowAdd(true) }}
           className="bg-[#1a1a1a] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800">+ Add</button>
       </div>
 
@@ -134,13 +137,13 @@ export default function LicencesPage() {
               <div className="flex items-center gap-2">
                 <label className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50 text-center">
                   {uploading ? 'Uploading...' : imageUrl ? 'Change image' : 'Choose file...'}
-                  <input type="file" accept="image/*,.pdf" onChange={uploadImage} className="hidden" />
+                  <input type="file" accept="image/*,.pdf,application/pdf" onChange={uploadImage} className="hidden" />
                 </label>
                 {imageUrl && (
                   <button onClick={() => setViewImage(imageUrl)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-2 border border-blue-200 rounded-lg">View</button>
                 )}
               </div>
-              {imageUrl && <div className="text-xs text-green-600 mt-1">Image attached</div>}
+              {imageUrl && <div className="text-xs text-green-600 mt-1">{imageUrl.toLowerCase().endsWith('.pdf') ? 'PDF' : 'Image'} attached</div>}
             </div>
             <div className="sm:col-span-2"><label className="block text-xs text-gray-500 mb-1">Notes</label>
               <input value={notes} onChange={e => setNotes(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-400" placeholder="Optional notes" /></div>
@@ -160,7 +163,11 @@ export default function LicencesPage() {
               <span className="text-sm font-medium text-gray-700">Document Preview</span>
               <button onClick={() => setViewImage(null)} className="text-gray-400 hover:text-gray-700 text-xl">&#10005;</button>
             </div>
-            <img src={viewImage} alt="Document" className="max-w-full rounded-lg" />
+            {viewImage.toLowerCase().endsWith('.pdf') ? (
+              <iframe src={viewImage} className="w-full" style={{height: '80vh'}} />
+            ) : (
+              <img src={viewImage} alt="Document" className="max-w-full rounded-lg" />
+            )}
           </div>
         </div>
       )}
@@ -185,8 +192,11 @@ export default function LicencesPage() {
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     {item.image_url ? (
-                      <button onClick={() => setViewImage(item.image_url)} className="w-8 h-8 rounded-lg bg-gray-100 overflow-hidden hover:ring-2 ring-blue-300">
-                        <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                      <button onClick={() => setViewImage(item.image_url)} className="w-8 h-8 rounded-lg bg-gray-100 overflow-hidden hover:ring-2 ring-blue-300 flex items-center justify-center">
+                        {item.image_url.toLowerCase().endsWith('.pdf')
+                          ? <span className="text-red-500 text-xs font-bold">PDF</span>
+                          : <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                        }
                       </button>
                     ) : (
                       <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-300 text-xs">—</div>
