@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit'
+import sharp from 'sharp'
 import { BUSINESS } from './constants'
 import path from 'path'
 import fs from 'fs'
@@ -344,9 +345,10 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
     // Report title section
     let y = 130
     doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text('REPORT TITLE', 40, y)
-    y += 10
-    doc.fontSize(18).font('Helvetica-Bold').fillColor('#1a1a1a').text(data.title, 40, y)
-    y += 26
+    y += 12
+    const titleHeight = doc.fontSize(18).font('Helvetica-Bold').heightOfString(data.title, { width: 475 })
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#1a1a1a').text(data.title, 40, y, { width: 475 })
+    y += titleHeight + 8
 
     // Status badge
     doc.rect(40, y, 75, 18).fillAndStroke('#d1fae5', '#6ee7b7')
@@ -451,14 +453,25 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
       const photoHeight = 180
       let col = 0
 
-      for (let i = 0; i < data.photos.length; i++) {
+      // Compress photos for smaller PDF size and faster rendering
+      const compressedPhotos: Buffer[] = []
+      for (const photo of data.photos) {
+        try {
+          const compressed = await sharp(photo).resize(800, 600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
+          compressedPhotos.push(compressed)
+        } catch {
+          compressedPhotos.push(photo)
+        }
+      }
+
+      for (let i = 0; i < compressedPhotos.length; i++) {
         try {
           const x = col === 0 ? 40 : 300
           if (col === 0 && y + photoHeight > doc.page.height - 60) {
             doc.addPage()
             y = 40
           }
-          doc.image(data.photos[i], x, y, { width: photoWidth, height: photoHeight, fit: [photoWidth, photoHeight] })
+          doc.image(compressedPhotos[i], x, y, { width: photoWidth, height: photoHeight, fit: [photoWidth, photoHeight] })
           doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
             .text('Photo ' + (i + 1), x, y + photoHeight + 3, { width: photoWidth, align: 'center' })
           col++
