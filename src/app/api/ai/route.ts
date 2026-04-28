@@ -156,7 +156,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if((actions.includes('send_email')||attachments.length>0)&&email){
-      const eb=plan.customEmailBody?'<p>'+plan.customEmailBody.split('\n').join('<br>')+'</p>':'<p>Hi,</p><p>Please find attached documents as requested.</p>'
+      let eb='';if(plan.customEmailBody){eb='<p>'+plan.customEmailBody.split('\n').join('<br>')+'</p>'}else{const dt:string[]=[];if(results.some(r=>r.includes('Report')))dt.push('service report');if(results.some(r=>r.includes('Invoice')))dt.push('invoice');if(results.some(r=>r.includes('Quote')))dt.push('quote');if(results.some(r=>r.includes('file')))dt.push('requested documents');eb='<p>Hi,</p><p>Please see attached '+(dt.length>0?dt.join(' and '):'attached documents')+'.</p>'}
       await sendEmail({to:email,cc:plan.ccEmail||undefined,subject:plan.emailSubject||results.join(' + ')+' - Tested Electrical',body:buildEmailHTML(eb+"<p>Any questions or issues opening please let me know.</p><p>Kind Regards,<br>Nathan's Assistant B</p>"),attachments})
       results.push('Sent to '+email)
     }
