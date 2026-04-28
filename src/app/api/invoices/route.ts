@@ -71,8 +71,11 @@ export async function PUT(req: NextRequest) {
     const pdf = await generateInvoicePDF({
       invoice_number: inv.invoice_number,
       date: formatDate(inv.created_at),
-      bill_to_name: inv.client_name,
-      bill_to_address: inv.site_address,
+      bill_to_name: inv.bill_to_name || inv.client_name,
+      bill_to_company: inv.bill_to_company || undefined,
+      bill_to_address: inv.bill_to_address || inv.site_address,
+      bill_to_email: inv.client_email || undefined,
+      bill_to_phone: inv.client_phone || undefined,
       line_items: inv.line_items,
       subtotal: parseFloat(inv.subtotal),
       gst: parseFloat(inv.gst),
