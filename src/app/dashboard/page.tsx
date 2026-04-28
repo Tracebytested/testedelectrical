@@ -259,6 +259,22 @@ export default function DashboardPage() {
           </div>
           <div className="space-y-2">
             {licences.map((lic: any) => {
+              if (lic.no_expiry) {
+                return (
+                  <div key={lic.id} className="flex items-center justify-between py-1.5">
+                    <div className="text-sm text-gray-700">{lic.name}</div>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800">No Expiry</span>
+                  </div>
+                )
+              }
+              if (!lic.expiry_date) {
+                return (
+                  <div key={lic.id} className="flex items-center justify-between py-1.5">
+                    <div className="text-sm text-gray-700">{lic.name}</div>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600">No Date</span>
+                  </div>
+                )
+              }
               const now = new Date(); now.setHours(0,0,0,0)
               const exp = new Date(lic.expiry_date)
               const diff = Math.ceil((exp.getTime() - now.getTime()) / 86400000)
