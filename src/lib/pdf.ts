@@ -200,7 +200,6 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
       doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text(data.bill_to_phone, 40, billToY)
       billToY += 12
     }
-    }
 
     // Business details (right side)
     addBusinessDetails(doc, 130)
