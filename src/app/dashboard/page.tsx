@@ -73,6 +73,7 @@ export default function DashboardPage() {
     if (!aiMsg.trim()) return
     setAiLoading(true)
     setAiReply('')
+    setPendingPlan(null)
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
@@ -81,11 +82,38 @@ export default function DashboardPage() {
       })
       const data = await res.json()
       setAiReply(data.response || data.error || 'No response')
+      if (data.needsConfirmation && data.plan) {
+        setPendingPlan(data.plan)
+      }
       setAiMsg('')
     } catch {
-      setAiReply('Error — check Anthropic API key in variables')
+      setAiReply('Error - check Anthropic API key')
     }
     setAiLoading(false)
+  }
+
+  const confirmPlan = async () => {
+    if (!pendingPlan) return
+    setAiLoading(true)
+    setAiReply('Executing...')
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: pendingPlan })
+      })
+      const data = await res.json()
+      setAiReply(data.response || data.error || 'Done!')
+    } catch {
+      setAiReply('Error executing plan')
+    }
+    setPendingPlan(null)
+    setAiLoading(false)
+  }
+
+  const cancelPlan = () => {
+    setPendingPlan(null)
+    setAiReply('Cancelled. Nothing was sent.')
   }
 
   return (
@@ -187,8 +215,20 @@ export default function DashboardPage() {
           <div className="bg-[#1a1a1a] rounded-2xl p-4">
             <h3 className="font-semibold text-sm text-[#F5C400] mb-3">⚡ Ask Beezy</h3>
             {aiReply && (
-              <div className="bg-white/10 rounded-xl px-3 py-2.5 text-white/90 text-sm mb-3 leading-relaxed">
+              <div className="bg-white/10 rounded-xl px-3 py-2.5 text-white/90 text-sm mb-3 leading-relaxed whitespace-pre-line">
                 {aiReply}
+              </div>
+            )}
+            {pendingPlan && (
+              <div className="flex gap-2 mb-3">
+                <button onClick={confirmPlan} disabled={aiLoading}
+                  className="flex-1 bg-green-500 text-white font-semibold rounded-xl py-2.5 text-sm hover:bg-green-600 disabled:opacity-40">
+                  {aiLoading ? 'Sending...' : 'Confirm & Send'}
+                </button>
+                <button onClick={cancelPlan} disabled={aiLoading}
+                  className="flex-1 bg-red-500/80 text-white font-semibold rounded-xl py-2.5 text-sm hover:bg-red-600 disabled:opacity-40">
+                  Cancel
+                </button>
               </div>
             )}
             <textarea
