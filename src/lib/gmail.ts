@@ -103,11 +103,15 @@ export async function markAsRead(messageId: string) {
 
 export async function sendEmail({
   to,
+  cc,
+  bcc,
   subject,
   body,
   attachments = []
 }: {
   to: string
+  cc?: string
+  bcc?: string
   subject: string
   body: string
   attachments?: Array<{ filename: string; content: Buffer; contentType: string }>
@@ -118,6 +122,10 @@ export async function sendEmail({
   let raw = [
     `From: ${BUSINESS.name} <${BUSINESS.email}>`,
     `To: ${to}`,
+  ]
+  if (cc) raw.push(`Cc: ${cc}`)
+  if (bcc) raw.push(`Bcc: ${bcc}`)
+  raw.push(
     `Subject: ${subject}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
@@ -126,7 +134,7 @@ export async function sendEmail({
     'Content-Type: text/html; charset=utf-8',
     '',
     body,
-  ]
+  )
 
   for (const att of attachments) {
     raw.push(`--${boundary}`)
