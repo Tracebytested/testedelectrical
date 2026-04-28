@@ -27,6 +27,7 @@ export default function LicencesPage() {
   const [expiry, setExpiry] = useState('')
   const [noExpiry, setNoExpiry] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
+  const [imageType, setImageType] = useState('')
   const [notes, setNotes] = useState('')
   const [viewImage, setViewImage] = useState<string | null>(null)
 
@@ -35,14 +36,14 @@ export default function LicencesPage() {
 
   const clearForm = () => {
     setName(''); setType('licence'); setLicNum(''); setIssueDate(''); setExpiry('')
-    setNoExpiry(false); setImageUrl(''); setNotes(''); setShowAdd(false); setEditId(null)
+    setNoExpiry(false); setImageUrl(''); setImageType(''); setNotes(''); setShowAdd(false); setEditId(null)
   }
 
   const startEdit = (item: any) => {
     setEditId(item.id); setName(item.name); setType(item.type || 'licence')
     setLicNum(item.licence_number || ''); setIssueDate(item.issue_date?.split('T')[0] || '')
     setExpiry(item.expiry_date?.split('T')[0] || ''); setNoExpiry(item.no_expiry || false)
-    setImageUrl(item.image_url || ''); setNotes(item.notes || ''); setShowAdd(false)
+    setImageUrl(item.image_url || ''); setImageType(item.image_type || ''); setNotes(item.notes || ''); setShowAdd(false)
   }
 
   const uploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,7 +55,7 @@ export default function LicencesPage() {
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: fd })
       const data = await res.json()
-      if (data.url) setImageUrl(data.url)
+      if (data.url) { setImageUrl(data.url); setImageType(data.type || '') }
       if (data.error) console.error('Upload error:', data.error)
     } catch {}
     setUploading(false)
@@ -64,7 +65,7 @@ export default function LicencesPage() {
     if (!name) return
     if (!noExpiry && !expiry) return
     setSaving(true)
-    const payload: any = { name, type, licence_number: licNum, issue_date: issueDate || null, expiry_date: noExpiry ? null : (expiry || null), no_expiry: noExpiry, image_url: imageUrl || null, notes: notes || null }
+    const payload: any = { name, type, licence_number: licNum, issue_date: issueDate || null, expiry_date: noExpiry ? null : (expiry || null), no_expiry: noExpiry, image_url: imageUrl || null, image_type: imageType || null, notes: notes || null }
     if (editId) payload.id = editId
     const res = await fetch('/api/licences', { method: editId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     const result = await res.json()
@@ -87,7 +88,7 @@ export default function LicencesPage() {
     <div className="p-4 lg:p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Licences & Insurance</h1>
-        <button onClick={() => { setEditId(null); setName(''); setType('licence'); setLicNum(''); setIssueDate(''); setExpiry(''); setNoExpiry(false); setImageUrl(''); setNotes(''); setShowAdd(true) }}
+        <button onClick={() => { setEditId(null); setName(''); setType('licence'); setLicNum(''); setIssueDate(''); setExpiry(''); setNoExpiry(false); setImageUrl(''); setImageType(''); setNotes(''); setShowAdd(true) }}
           className="bg-[#1a1a1a] text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-800">+ Add</button>
       </div>
 
@@ -164,11 +165,7 @@ export default function LicencesPage() {
               <span className="text-sm font-medium text-gray-700">Document Preview</span>
               <button onClick={() => setViewImage(null)} className="text-gray-400 hover:text-gray-700 text-xl">&#10005;</button>
             </div>
-            {viewImage.includes('.pdf') || viewImage.includes('drive.google.com') ? (
-              <iframe src={viewImage} className="w-full" style={{height: '80vh', minWidth: '600px'}} />
-            ) : (
-              <img src={viewImage} alt="Document" className="max-w-full rounded-lg" />
-            )}
+            <iframe src={viewImage} className="w-full" style={{height: '80vh', minWidth: '600px'}} />
           </div>
         </div>
       )}
