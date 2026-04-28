@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [aiMsg, setAiMsg] = useState('')
   const [aiReply, setAiReply] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
+  const [pendingPlan, setPendingPlan] = useState<any>(null)
   const [polling, setPolling] = useState(false)
   const [pollResult, setPollResult] = useState('')
   const [error, setError] = useState('')
