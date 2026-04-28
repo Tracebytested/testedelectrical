@@ -7,7 +7,7 @@ import { generateReportPDF, generateInvoicePDF, generateQuotePDF } from '@/lib/p
 import { sendEmail, buildEmailHTML } from '@/lib/gmail'
 import { query } from '@/lib/db'
 import {
-  getNextReportNumber, getNextInvoiceNumber, getNextJobNumber, getNextQuoteNumber,
+  getNextReportNumber, getNextInvoiceNumber, getNextBeezyInvoiceNumber, getNextJobNumber, getNextQuoteNumber,
   calculateLineItems, formatDate, formatDateLong, findOrCreateClient
 } from '@/lib/utils'
 import { BUSINESS } from '@/lib/constants'
@@ -138,7 +138,7 @@ async function executePlan(plan: any, from: string) {
       // Get photos from Work Images folder
       const pf = await getRecentJobPhotos(siteAddress)
       if (pf.length > 0) {
-        const bufs = await Promise.all(pf.slice(0, 6).map((f: any) => downloadDriveFile(f.id).catch(() => null)))
+        const bufs = await Promise.all(pf.map((f: any) => downloadDriveFile(f.id).catch(() => null)))
         photos = bufs.filter((b): b is Buffer => b !== null)
       }
       // Also include Drive search images in report if requested
@@ -150,7 +150,7 @@ async function executePlan(plan: any, from: string) {
             const mime = (f.mimeType || '').toLowerCase()
             return mime.includes('image') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png')
           })
-          for (const imgFile of imageFiles.slice(0, 6)) {
+          for (const imgFile of imageFiles) {
             const buf = await downloadDriveFile(imgFile.id).catch(() => null)
             if (buf && !photos.find(p => p.equals(buf))) photos.push(buf)
           }
@@ -181,7 +181,7 @@ async function executePlan(plan: any, from: string) {
     let items = (plan.lineItems || []).filter((i: any) => i.rate > 0 && i.qty > 0)
     if (items.length === 0) items = [{ description: plan.jobTitle || 'Electrical Services', qty: 1, rate: price }]
     const { lineItems, subtotal, gst, total } = calculateLineItems(items)
-    const invNum = await getNextInvoiceNumber()
+    const invNum = await getNextBeezyInvoiceNumber()
     if (jobRef) {
       await query('INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date) VALUES ($1,$2,$3,$4,$5,$6,$7,\'draft\',$8)',
         [invNum, jobRef.id, jobRef.client_id, JSON.stringify(lineItems), subtotal, gst, total, new Date(Date.now() + 7 * 86400000)])
