@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const today = new Date().toISOString().split('T')[0]
     const aiPlan = await anthropic.messages.create({
       model: 'claude-sonnet-4-5', max_tokens: 800,
-      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '. Clients: ' + JSON.stringify(recentClients.rows) + ' Jobs: ' + JSON.stringify(recentJobs.rows) + ' Nathan asked: "' + message.replace(/"/g, "'") + '" Return ONLY JSON: {"actions":["create_job","generate_report","generate_invoice","generate_quote","attach_from_drive","book_calendar","send_email","general_reply"],"driveSearchTerms":["term"],"driveRecentOnly":false,"driveImagesInReport":false,"driveImagesAttachEmail":false,"clientName":"company","billToName":"liable person","recipientEmail":"email","siteAddress":"address","price":0,"lineItems":[{"description":"...","qty":1,"rate":100}],"customEmailBody":"","emailSubject":"","jobDescription":"","jobTitle":"","calendarDate":"","calendarTime":"","reportDescription":"","reply":"reply if general"} Rules: actions can have multiple. lineItems rate>0 total=price. driveImagesInReport=true to embed in report. price is ex GST.' }]
+      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '. Clients: ' + JSON.stringify(recentClients.rows) + ' Jobs: ' + JSON.stringify(recentJobs.rows) + ' Nathan asked: "' + message.replace(/"/g, "'") + '" Return ONLY JSON: {"actions":["create_job","generate_report","generate_invoice","generate_quote","attach_from_drive","book_calendar","send_email","general_reply"],"driveSearchTerms":["term"],"driveRecentOnly":false,"driveImagesInReport":false,"driveImagesAttachEmail":false,"clientName":"company","billToName":"liable person","recipientEmail":"email","ccEmail":"cc email if mentioned","siteAddress":"address","price":0,"lineItems":[{"description":"...","qty":1,"rate":100}],"customEmailBody":"","emailSubject":"","jobDescription":"","jobTitle":"","calendarDate":"","calendarTime":"","reportDescription":"","reply":"reply if general"} Rules: actions can have multiple. lineItems rate>0 total=price. driveImagesInReport=true to embed in report. price is ex GST.' }]
     })
     let plan: any = {}
     try {
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     plan.resolvedCompanyName = companyName; plan.resolvedAddress = siteAddress; plan.resolvedJobId = jobRef?.id || null; plan.price = price
 
     return NextResponse.json({
-      response: parts.join('\n') + '\n\nSend to: ' + (email||'NO EMAIL') + '\nBill to: ' + billToName + (companyName && companyName !== billToName ? ' ('+companyName+')' : '') + (siteAddress ? '\nAddress: '+siteAddress : ''),
+      response: parts.join('\n') + '\n\nSend to: ' + (email||'NO EMAIL') + (plan.ccEmail ? '\nCC: ' + plan.ccEmail : '') + '\nBill to: ' + billToName + (companyName && companyName !== billToName ? ' ('+companyName+')' : '') + (siteAddress ? '\nAddress: '+siteAddress : ''),
       needsConfirmation: true, plan
     })
   } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }) }
@@ -157,7 +157,7 @@ export async function PUT(req: NextRequest) {
 
     if((actions.includes('send_email')||attachments.length>0)&&email){
       const eb=plan.customEmailBody?'<p>'+plan.customEmailBody.split('\n').join('<br>')+'</p>':'<p>Hi,</p><p>Please find attached documents as requested.</p>'
-      await sendEmail({to:email,subject:plan.emailSubject||results.join(' + ')+' - Tested Electrical',body:buildEmailHTML(eb+"<p>Any questions or issues opening please let me know.</p><p>Kind Regards,<br>Nathan's Assistant B</p>"),attachments})
+      await sendEmail({to:email,cc:plan.ccEmail||undefined,subject:plan.emailSubject||results.join(' + ')+' - Tested Electrical',body:buildEmailHTML(eb+"<p>Any questions or issues opening please let me know.</p><p>Kind Regards,<br>Nathan's Assistant B</p>"),attachments})
       results.push('Sent to '+email)
     }
 
