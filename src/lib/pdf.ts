@@ -19,6 +19,8 @@ interface InvoiceData {
   bill_to_name: string
   bill_to_company?: string
   bill_to_address?: string
+  bill_to_email?: string
+  bill_to_phone?: string
   line_items: LineItem[]
   subtotal: number
   gst: number
@@ -29,7 +31,10 @@ interface QuoteData {
   quote_number: string
   date: string
   quote_to_name: string
+  quote_to_company?: string
   quote_to_address?: string
+  quote_to_email?: string
+  quote_to_phone?: string
   line_items: LineItem[]
   subtotal: number
   gst: number
@@ -123,7 +128,8 @@ function addLineItemsTable(doc: any, items: LineItem[], startY: number): number 
   // Line items
   items.forEach((item, i) => {
     const bg = i % 2 === 0 ? 'white' : '#f9fafb'
-    const rowH = 22
+    const descHeight = doc.fontSize(8).font('Helvetica').heightOfString(item.description, { width: colWidths.desc - 4 })
+    const rowH = Math.max(22, descHeight + 14)
     doc.rect(40, y, 515, rowH).fillAndStroke(bg, '#e5e7eb')
     doc.fontSize(8).font('Helvetica').fillColor('#1a1a1a')
     doc.text(item.description, cols.desc + 2, y + 7, { width: colWidths.desc - 4 })
@@ -175,15 +181,25 @@ export async function generateInvoicePDF(data: InvoiceData): Promise<Buffer> {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('white').text('BILL TO', 45, 134)
     doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a')
       .text(data.bill_to_name, 40, 148)
-    let billToY = 160
+    let billToY = 162
     if (data.bill_to_company) {
       doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(data.bill_to_company, 40, billToY)
-      billToY += 12
+      billToY += 14
     }
     if (data.bill_to_address) {
       data.bill_to_address.split('\n').forEach((line, i) => {
-        doc.text(line, 40, 160 + (i * 12))
+        doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(line, 40, billToY + (i * 14))
+        billToY += 14
       })
+    }
+    if (data.bill_to_email) {
+      doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text(data.bill_to_email, 40, billToY)
+      billToY += 12
+    }
+    if (data.bill_to_phone) {
+      doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text(data.bill_to_phone, 40, billToY)
+      billToY += 12
+    }
     }
 
     // Business details (right side)
@@ -257,10 +273,24 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#1a1a1a').text('QUOTE TO', 45, 134)
     doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a')
       .text(data.quote_to_name, 40, 148)
+    let quoteToY = 162
+    if (data.quote_to_company) {
+      doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(data.quote_to_company, 40, quoteToY)
+      quoteToY += 14
+    }
     if (data.quote_to_address) {
       data.quote_to_address.split('\n').forEach((line, i) => {
-        doc.text(line, 40, 160 + (i * 12))
+        doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a').text(line, 40, quoteToY)
+        quoteToY += 14
       })
+    }
+    if (data.quote_to_email) {
+      doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text(data.quote_to_email, 40, quoteToY)
+      quoteToY += 12
+    }
+    if (data.quote_to_phone) {
+      doc.fontSize(8).font('Helvetica').fillColor('#6b7280').text(data.quote_to_phone, 40, quoteToY)
+      quoteToY += 12
     }
 
     // Please note box (right side, like template)
