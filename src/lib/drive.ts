@@ -40,7 +40,7 @@ export async function findInspectionReport(address: string): Promise<{
         q: `name contains '${term}' and trashed = false`,
         fields: 'files(id, name, mimeType, modifiedTime)',
         orderBy: 'modifiedTime desc',
-        pageSize: 10
+        pageSize: 50
       })
 
       const files = (res.data.files || []).filter((f: any) => 
@@ -96,7 +96,7 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
         q: nameQuery,
         fields: 'files(id, name, mimeType, modifiedTime)',
         orderBy: 'modifiedTime desc',
-        pageSize: 10
+        pageSize: 50
       })
       if ((nameRes.data.files || []).length > 0) {
         return nameRes.data.files as any[]
@@ -107,7 +107,7 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
       q: query,
       fields: 'files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
-      pageSize: 10
+      pageSize: 50
     })
 
     return (res.data.files || []) as any[]
@@ -182,7 +182,7 @@ export async function findAllInspectionReports(searchTerm: string): Promise<Arra
       q: `name contains '${searchTerm}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
       fields: 'files(id, name, mimeType, modifiedTime)',
       orderBy: 'modifiedTime desc',
-      pageSize: 10
+      pageSize: 50
     })
     const files = (res.data.files || []) as any[]
     console.log('Drive search "' + searchTerm + '" returned:', files.map((f: any) => f.name))
