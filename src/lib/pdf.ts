@@ -305,6 +305,19 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
 }
 
 export async function generateReportPDF(data: ReportData): Promise<Buffer> {
+  // Compress photos before PDF generation for smaller file size
+  let processedPhotos: Buffer[] = []
+  if (data.photos && data.photos.length > 0) {
+    for (const photo of data.photos) {
+      try {
+        const compressed = await sharp(photo).resize(800, 600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
+        processedPhotos.push(compressed)
+      } catch {
+        processedPhotos.push(photo)
+      }
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 40, size: 'A4' })
     const chunks: Buffer[] = []
@@ -442,7 +455,7 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
     y += 30
 
     // Photos section
-    if (data.photos && data.photos.length > 0) {
+    if (processedPhotos.length > 0) {
       if (y > doc.page.height - 100) { doc.addPage(); y = 40 }
       doc.moveTo(40, y).lineTo(555, y).strokeColor('#e5e7eb').lineWidth(1).stroke()
       y += 12
@@ -453,25 +466,14 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
       const photoHeight = 180
       let col = 0
 
-      // Compress photos for smaller PDF size and faster rendering
-      const compressedPhotos: Buffer[] = []
-      for (const photo of data.photos) {
-        try {
-          const compressed = await sharp(photo).resize(800, 600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
-          compressedPhotos.push(compressed)
-        } catch {
-          compressedPhotos.push(photo)
-        }
-      }
-
-      for (let i = 0; i < compressedPhotos.length; i++) {
+      for (let i = 0; i < processedPhotos.length; i++) {
         try {
           const x = col === 0 ? 40 : 300
           if (col === 0 && y + photoHeight > doc.page.height - 60) {
             doc.addPage()
             y = 40
           }
-          doc.image(compressedPhotos[i], x, y, { width: photoWidth, height: photoHeight, fit: [photoWidth, photoHeight] })
+          doc.image(processedPhotos[i], x, y, { width: photoWidth, height: photoHeight, fit: [photoWidth, photoHeight] })
           doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
             .text('Photo ' + (i + 1), x, y + photoHeight + 3, { width: photoWidth, align: 'center' })
           col++
