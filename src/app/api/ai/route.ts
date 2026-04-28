@@ -5,7 +5,7 @@ import { createCalendarEvent } from '@/lib/calendar'
 import { generateReportPDF, generateInvoicePDF, generateQuotePDF } from '@/lib/pdf'
 import { sendEmail, buildEmailHTML } from '@/lib/gmail'
 import { query } from '@/lib/db'
-import { getNextReportNumber, getNextInvoiceNumber, getNextJobNumber, getNextQuoteNumber, calculateLineItems, formatDate, formatDateLong, findOrCreateClient } from '@/lib/utils'
+import { getNextReportNumber, getNextInvoiceNumber, getNextBeezyInvoiceNumber, getNextJobNumber, getNextQuoteNumber, calculateLineItems, formatDate, formatDateLong, findOrCreateClient } from '@/lib/utils'
 import { BUSINESS, AGENT } from '@/lib/constants'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -126,8 +126,8 @@ export async function PUT(req: NextRequest) {
       if (price>0) rd.price_ex_gst=price
       let photos:Buffer[]=[]
       try {
-        const pf=await getRecentJobPhotos(siteAddress); if(pf.length>0){const b=await Promise.all(pf.slice(0,6).map((f:any)=>downloadDriveFile(f.id).catch(()=>null)));photos=b.filter((x):x is Buffer=>x!==null)}
-        if(plan.driveImagesInReport&&plan.driveSearchTerms){for(const term of plan.driveSearchTerms){const df=await findAllInspectionReports(term);for(const f of df.filter((f:any)=>{const n=(f.name||'').toLowerCase();const m=(f.mimeType||'').toLowerCase();return m.includes('image')||n.endsWith('.jpg')||n.endsWith('.png')}).slice(0,6)){const buf=await downloadDriveFile(f.id).catch(()=>null);if(buf)photos.push(buf)}}}
+        const pf=await getRecentJobPhotos(siteAddress); if(pf.length>0){const b=await Promise.all(pf.map((f:any)=>downloadDriveFile(f.id).catch(()=>null)));photos=b.filter((x):x is Buffer=>x!==null)}
+        if(plan.driveImagesInReport&&plan.driveSearchTerms){for(const term of plan.driveSearchTerms){const df=await findAllInspectionReports(term);for(const f of df.filter((f:any)=>{const n=(f.name||'').toLowerCase();const m=(f.mimeType||'').toLowerCase();return m.includes('image')||n.endsWith('.jpg')||n.endsWith('.png')})){const buf=await downloadDriveFile(f.id).catch(()=>null);if(buf)photos.push(buf)}}}
       }catch{}
       const rn=await getNextReportNumber()
       if(jobRef)await query("INSERT INTO reports (report_number,job_id,client_id,title,task_information,investigation_findings,work_undertaken,remedial_action,recommended_followup,price_ex_gst,conducted_date,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'draft')",[rn,jobRef.id,jobRef.client_id,rd.title,rd.task_information,rd.investigation_findings,rd.work_undertaken,rd.remedial_action,rd.recommended_followup,rd.price_ex_gst,new Date()])
@@ -138,7 +138,7 @@ export async function PUT(req: NextRequest) {
 
     if(actions.includes('generate_invoice')&&price>0){
       let items=(plan.lineItems||[]).filter((i:any)=>i.rate>0&&i.qty>0);if(items.length===0)items=[{description:plan.jobTitle||'Electrical Services',qty:1,rate:price}]
-      const{lineItems,subtotal,gst,total}=calculateLineItems(items);const inv=await getNextInvoiceNumber()
+      const{lineItems,subtotal,gst,total}=calculateLineItems(items);const inv=await getNextBeezyInvoiceNumber()
       if(jobRef)await query("INSERT INTO invoices (invoice_number,job_id,client_id,line_items,subtotal,gst,total,status,due_date) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)",[inv,jobRef.id,jobRef.client_id,JSON.stringify(lineItems),subtotal,gst,total,new Date(Date.now()+7*86400000)])
       const ip=await generateInvoicePDF({invoice_number:inv,date:formatDate(new Date()),bill_to_name:billToName,bill_to_company:companyName,bill_to_address:siteAddress,line_items:lineItems,subtotal,gst,total})
       attachments.push({filename:'Invoice_'+inv+'.pdf',content:ip,contentType:'application/pdf'});results.push('Invoice '+inv+' ($'+total.toFixed(2)+' inc GST)')
