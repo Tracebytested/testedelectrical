@@ -433,18 +433,11 @@ export async function generateReportPDF(data: ReportData): Promise<Buffer> {
       y += doc.heightOfString(section.text, { width: 515 }) + 16
     })
 
-    // Cost section
+    // Sign off
     if (y > 700) { doc.addPage(); y = 40 }
     doc.moveTo(40, y).lineTo(555, y).strokeColor('#e5e7eb').lineWidth(1).stroke()
     y += 10
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#1a56db').text('COST', 40, y)
-    y += 14
     doc.fontSize(9).font('Helvetica').fillColor('#1a1a1a')
-      .text(`Price (ex GST)`, 40, y)
-      .text(`$${data.price_ex_gst.toFixed(2)}`, 200, y)
-    y += 20
-
-    // Sign off
     doc.text(`CONDUCTED BY`, 40, y)
     y += 12
     doc.font('Helvetica-Bold').text(`${BUSINESS.technician} (Lic. ${BUSINESS.licence})`, 40, y)
