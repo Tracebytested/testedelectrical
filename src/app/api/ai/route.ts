@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     if (actions.includes('create_job')) parts.push('Create work order: "' + (plan.jobTitle || 'New Job') + '"')
     if (actions.includes('attach_from_drive')) parts.push('Attach from Drive: "' + (plan.driveSearchTerms || []).join(', ') + '"')
     if (actions.includes('generate_report')) parts.push('Generate report' + (plan.driveImagesInReport ? ' (with images)' : ''))
-    if (actions.includes('generate_invoice') && price > 0) { const it = (plan.lineItems||[]).filter((i:any)=>i.rate>0); parts.push(it.length>0 ? 'Invoice: '+it.map((i:any)=>i.description+' x'+i.qty+' $'+i.rate).join(', ')+' ($'+(price*1.1).toFixed(2)+' inc GST)' : 'Invoice $'+(price*1.1).toFixed(2)+' inc GST') }
+    if (actions.includes('generate_invoice') && price > 0) { const it = (plan.lineItems||[]).filter((i:any)=>i.rate!==0); parts.push(it.length>0 ? 'Invoice: '+it.map((i:any)=>i.description+' x'+i.qty+' $'+i.rate).join(', ')+' ($'+(price*1.1).toFixed(2)+' inc GST)' : 'Invoice $'+(price*1.1).toFixed(2)+' inc GST') }
     if (actions.includes('generate_quote') && price > 0) parts.push('Quote $' + (price*1.1).toFixed(2) + ' inc GST')
     if (actions.includes('book_calendar')) parts.push('Book: ' + (plan.calendarDate||'') + (plan.calendarTime ? ' at '+plan.calendarTime : ''))
     if (actions.includes('send_email')) parts.push('Send email')
@@ -139,7 +139,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if(actions.includes('generate_invoice')&&price>0){
-      let items=(plan.lineItems||[]).filter((i:any)=>i.rate>0&&i.qty>0);if(items.length===0)items=[{description:plan.jobTitle||'Electrical Services',qty:1,rate:price}]
+      let items=(plan.lineItems||[]).filter((i:any)=>i.rate!==0&&i.qty>0);if(items.length===0)items=[{description:plan.jobTitle||'Electrical Services',qty:1,rate:price}]
       const{lineItems,subtotal,gst,total}=calculateLineItems(items);const inv=await getNextBeezyInvoiceNumber()
       if(jobRef)await query("INSERT INTO invoices (invoice_number,job_id,client_id,line_items,subtotal,gst,total,status,due_date) VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8)",[inv,jobRef.id,jobRef.client_id,JSON.stringify(lineItems),subtotal,gst,total,new Date(Date.now()+7*86400000)])
       const ip=await generateInvoicePDF({invoice_number:inv,date:formatDate(new Date()),bill_to_name:billToName,bill_to_company:companyName,bill_to_address:siteAddress,line_items:lineItems,subtotal,gst,total})
@@ -147,7 +147,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if(actions.includes('generate_quote')&&price>0){
-      let items=(plan.lineItems||[]).filter((i:any)=>i.rate>0&&i.qty>0);if(items.length===0)items=[{description:plan.jobTitle||'Electrical Services',qty:1,rate:price}]
+      let items=(plan.lineItems||[]).filter((i:any)=>i.rate!==0&&i.qty>0);if(items.length===0)items=[{description:plan.jobTitle||'Electrical Services',qty:1,rate:price}]
       const{lineItems,subtotal,gst,total}=calculateLineItems(items);const qn=await getNextQuoteNumber()
       const qp=await generateQuotePDF({quote_number:qn,date:formatDate(new Date()),quote_to_name:billToName,quote_to_address:siteAddress,line_items:lineItems,subtotal,gst,total,notes:[]})
       attachments.push({filename:'Quote_'+qn+'.pdf',content:qp,contentType:'application/pdf'});results.push('Quote '+qn+' ($'+total.toFixed(2)+' inc GST)')
