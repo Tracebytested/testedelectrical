@@ -136,7 +136,7 @@ async function executePlan(plan: any, from: string) {
     let photos: Buffer[] = []
     try {
       // Get photos from Work Images folder
-      const pf = await getRecentJobPhotos(siteAddress)
+      const pf = await getRecentJobPhotos(siteAddress, plan.driveRecentOnly || false)
       if (pf.length > 0) {
         const bufs = await Promise.all(pf.map((f: any) => downloadDriveFile(f.id).catch(() => null)))
         photos = bufs.filter((b): b is Buffer => b !== null)
@@ -291,9 +291,11 @@ export async function POST(req: NextRequest) {
 
     // AI interprets the message
     const today = new Date().toISOString().split('T')[0]
+    const priceListResult = await query('SELECT item_name, price, category FROM pricelist ORDER BY item_name').catch(() => ({ rows: [] }))
+    const priceListStr = priceListResult.rows.length > 0 ? ' Price list: ' + JSON.stringify(priceListResult.rows) + ' Use these prices when Nathan mentions these items.' : ''
     const aiPlan = await anthropic.messages.create({
       model: 'claude-sonnet-4-5', max_tokens: 800,
-      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '.\n\nRecent conversation:\n' + conversationHistory + '\n\nNathan sent this SMS: "' + body.replace(/"/g, "'") + '"\n\nAnalyse what Nathan wants and return ONLY valid JSON:\n{\n  "actions": ["create_job", "generate_report", "generate_invoice", "generate_quote", "attach_from_drive", "book_calendar", "general_reply"],\n  "driveSearchTerms": ["search term"],\n  "driveRecentOnly": false,\n  "clientName": "company/agency",\n  "billToName": "person liable for payment",\n  "recipientEmail": "email if mentioned",\n  "ccEmail": "cc email if mentioned",\n  "siteAddress": "address",\n  "price": 0,\n  "lineItems": [{"description": "...", "qty": 1, "rate": 100}],\n  "customEmailBody": "custom email text if specified",\n  "jobDescription": "description",\n  "jobTitle": "brief title",\n  "calendarDate": "YYYY-MM-DD",\n  "calendarTime": "HH:MM",\n  "reportDescription": "what was done",\n  "reply": "brief reply if general question"\n}\n\nRules:\n- actions is an array - multiple actions can happen together\n- lineItems must have rate > 0, total must equal price\n- Only include actions Nathan actually asked for\n- driveImagesInReport: true if Nathan says include/embed/put images IN the report\n- driveImagesAttachEmail: true if Nathan says attach images TO the email\n- If both mentioned, set both true\n- Default attach images to email if unspecified\n- price is ex GST' }]
+      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '.\n\nRecent conversation:\n' + conversationHistory + '\n\nNathan sent this SMS: "' + body.replace(/"/g, "'") + '"\n\nAnalyse what Nathan wants and return ONLY valid JSON:\n{\n  "actions": ["create_job", "generate_report", "generate_invoice", "generate_quote", "attach_from_drive", "book_calendar", "general_reply"],\n  "driveSearchTerms": ["search term"],\n  "driveRecentOnly": false,\n  "clientName": "company/agency",\n  "billToName": "person liable for payment",\n  "recipientEmail": "email if mentioned",\n  "ccEmail": "cc email if mentioned",\n  "siteAddress": "address",\n  "price": 0,\n  "lineItems": [{"description": "...", "qty": 1, "rate": 100}],\n  "customEmailBody": "custom email text if specified",\n  "jobDescription": "description",\n  "jobTitle": "brief title",\n  "calendarDate": "YYYY-MM-DD",\n  "calendarTime": "HH:MM",\n  "reportDescription": "what was done",\n  "reply": "brief reply if general question"\n}\n\nRules:\n- actions is an array - multiple actions can happen together\n- lineItems must have rate > 0, total must equal price\n- Only include actions Nathan actually asked for\n- driveImagesInReport: true if Nathan says include/embed/put images IN the report\n- driveImagesAttachEmail: true if Nathan says attach images TO the email\n- If both mentioned, set both true\n- Default attach images to email if unspecified\n- price is ex GST.' + priceListStr }]
     })
 
     let plan: any = {}
