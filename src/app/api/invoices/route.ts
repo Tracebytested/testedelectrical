@@ -8,6 +8,23 @@ import { BUSINESS } from '@/lib/constants'
 
 export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+
+    if (id) {
+      const result = await query(`
+        SELECT i.*, c.name as client_name, c.email as client_email, j.title as job_title, j.site_address
+        FROM invoices i
+        LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN jobs j ON i.job_id = j.id
+        WHERE i.id = $1
+      `, [id])
+      if (!result.rows.length) {
+        return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+      }
+      return NextResponse.json(result.rows[0])
+    }
+
     const result = await query(`
       SELECT i.*, c.name as client_name, c.email as client_email, j.title as job_title, j.site_address
       FROM invoices i
@@ -112,6 +129,43 @@ export async function PUT(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, invoice_number: inv.invoice_number })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const data = await req.json()
+
+    // Simple status update (e.g. mark as paid)
+    if (data.id && data.status && !data.line_items) {
+      const result = await query(
+        `UPDATE invoices SET status = $1, paid_at = $2 WHERE id = $3 RETURNING *`,
+        [data.status, data.paid_at || null, data.id]
+      )
+      return NextResponse.json(result.rows[0])
+    }
+
+    // Full invoice edit
+    if (!data.id) {
+      return NextResponse.json({ error: 'Invoice ID required' }, { status: 400 })
+    }
+
+    const { lineItems, subtotal, gst, total } = calculateLineItems(data.line_items)
+
+    const result = await query(
+      `UPDATE invoices
+       SET client_id = $1, job_id = $2, line_items = $3, subtotal = $4, gst = $5, total = $6
+       WHERE id = $7 RETURNING *`,
+      [data.client_id, data.job_id, JSON.stringify(lineItems), subtotal, gst, total, data.id]
+    )
+
+    if (!result.rows.length) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+    }
+
+    return NextResponse.json(result.rows[0])
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
