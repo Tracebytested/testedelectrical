@@ -37,9 +37,11 @@ export async function POST(req: NextRequest) {
       query('SELECT name, email, company FROM clients ORDER BY name ASC LIMIT 20').catch(() => ({ rows: [] }))
     ])
     const today = new Date().toISOString().split('T')[0]
+    const priceListResult = await query('SELECT item_name, price, category FROM pricelist ORDER BY item_name').catch(() => ({ rows: [] }))
+    const priceListStr = priceListResult.rows.length > 0 ? ' Price list: ' + JSON.stringify(priceListResult.rows) + ' Use these prices when Nathan mentions these items.' : ''
     const aiPlan = await anthropic.messages.create({
       model: 'claude-sonnet-4-5', max_tokens: 800,
-      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '. Clients: ' + JSON.stringify(recentClients.rows) + ' Jobs: ' + JSON.stringify(recentJobs.rows) + ' Nathan asked: "' + message.replace(/"/g, "'") + '" Return ONLY JSON: {"actions":["create_job","generate_report","generate_invoice","generate_quote","attach_from_drive","book_calendar","send_email","general_reply"],"driveSearchTerms":["term"],"driveRecentOnly":false,"driveImagesInReport":false,"driveImagesAttachEmail":false,"clientName":"company","billToName":"liable person","recipientEmail":"email","ccEmail":"cc email if mentioned","siteAddress":"address","price":0,"lineItems":[{"description":"...","qty":1,"rate":100}],"customEmailBody":"","emailSubject":"","jobDescription":"","jobTitle":"","calendarDate":"","calendarTime":"","reportDescription":"","reply":"reply if general"} Rules: actions can have multiple. lineItems rate>0 total=price. driveImagesInReport=true to embed in report. price is ex GST.' }]
+      messages: [{ role: 'user', content: 'You are Beezy, AI admin for Tested Electrical. Today is ' + today + '. Clients: ' + JSON.stringify(recentClients.rows) + ' Jobs: ' + JSON.stringify(recentJobs.rows) + ' Nathan asked: "' + message.replace(/"/g, "'") + '" Return ONLY JSON: {"actions":["create_job","generate_report","generate_invoice","generate_quote","attach_from_drive","book_calendar","send_email","general_reply"],"driveSearchTerms":["term"],"driveRecentOnly":false,"driveImagesInReport":false,"driveImagesAttachEmail":false,"clientName":"company","billToName":"liable person","recipientEmail":"email","ccEmail":"cc email if mentioned","siteAddress":"address","price":0,"lineItems":[{"description":"...","qty":1,"rate":100}],"customEmailBody":"","emailSubject":"","jobDescription":"","jobTitle":"","calendarDate":"","calendarTime":"","reportDescription":"","reply":"reply if general"} Rules: actions can have multiple. lineItems rate>0 total=price. driveImagesInReport=true to embed in report. price is ex GST.' + priceListStr }]
     })
     let plan: any = {}
     try {
@@ -126,7 +128,7 @@ export async function PUT(req: NextRequest) {
       if (price>0) rd.price_ex_gst=price
       let photos:Buffer[]=[]
       try {
-        const pf=await getRecentJobPhotos(siteAddress); if(pf.length>0){const b=await Promise.all(pf.map((f:any)=>downloadDriveFile(f.id).catch(()=>null)));photos=b.filter((x):x is Buffer=>x!==null)}
+        const pf=await getRecentJobPhotos(siteAddress,plan.driveRecentOnly||false); if(pf.length>0){const b=await Promise.all(pf.map((f:any)=>downloadDriveFile(f.id).catch(()=>null)));photos=b.filter((x):x is Buffer=>x!==null)}
         if(plan.driveImagesInReport&&plan.driveSearchTerms){for(const term of plan.driveSearchTerms){const df=await findAllInspectionReports(term);for(const f of df.filter((f:any)=>{const n=(f.name||'').toLowerCase();const m=(f.mimeType||'').toLowerCase();return m.includes('image')||n.endsWith('.jpg')||n.endsWith('.png')})){const buf=await downloadDriveFile(f.id).catch(()=>null);if(buf)photos.push(buf)}}}
       }catch{}
       const rn=await getNextReportNumber()
