@@ -60,8 +60,8 @@ export async function findInspectionReport(address: string): Promise<{
   }
 }
 
-// Get recent job photos from Work Images folder (last 48 hours)
-export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
+// Get recent job photos from Work Images folder
+export async function getRecentJobPhotos(addressHint?: string, todayOnly: boolean = false): Promise<Array<{
   id: string
   name: string
   mimeType: string
@@ -83,15 +83,21 @@ export async function getRecentJobPhotos(addressHint?: string): Promise<Array<{
 
     const folderId = folders[0].id
 
-    // Get images from last 48 hours
-    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    // Use today's start if todayOnly, otherwise last 48 hours
+    const cutoffDate = new Date()
+    if (todayOnly) {
+      cutoffDate.setHours(0, 0, 0, 0)
+    } else {
+      cutoffDate.setTime(Date.now() - 48 * 60 * 60 * 1000)
+    }
+    const cutoff = cutoffDate.toISOString()
 
     let query = `'${folderId}' in parents and trashed = false and modifiedTime > '${cutoff}' and (mimeType contains 'image/' or name contains '.jpg' or name contains '.jpeg' or name contains '.png')`
 
     // If address hint provided, also try to match by filename
     if (addressHint) {
       const shortAddr = addressHint.split(' ').slice(0, 2).join(' ')
-      const nameQuery = `'${folderId}' in parents and trashed = false and name contains '${shortAddr}' and (mimeType contains 'image/' or name contains '.jpg')`
+      const nameQuery = `'${folderId}' in parents and trashed = false and modifiedTime > '${cutoff}' and name contains '${shortAddr}' and (mimeType contains 'image/' or name contains '.jpg')`
       const nameRes = await drive.files.list({
         q: nameQuery,
         fields: 'files(id, name, mimeType, modifiedTime)',
