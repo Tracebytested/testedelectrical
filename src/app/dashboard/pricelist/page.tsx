@@ -31,7 +31,7 @@ export default function PriceListPage() {
     await fetch('/api/pricelist?id=' + id, { method: 'DELETE' }); load()
   }
 
-  const categories = [...new Set(items.map(i => i.category || 'General'))]
+  const categories = Array.from(new Set(items.map(i => i.category || 'General')))
 
   return (
     <div className="p-4 lg:p-6 max-w-5xl mx-auto">
