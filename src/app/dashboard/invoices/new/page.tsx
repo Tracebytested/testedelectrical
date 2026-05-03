@@ -40,14 +40,14 @@ export default function NewInvoicePage() {
   const total = sub + gst
 
   const save = async (send: boolean) => {
-    if (!lines.some(l => l.description && l.rate > 0)) return
+    if (!lines.some(l => l.description && l.rate !== 0)) return
     setSaving(true)
     try {
       const res = await fetch('/api/invoices', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_id: clientId ? parseInt(clientId) : null, job_id: jobId ? parseInt(jobId) : null,
-          line_items: lines.filter(l => l.description && l.rate > 0),
+          line_items: lines.filter(l => l.description && l.rate !== 0),
           bill_to_name: billToName, bill_to_company: companyName, bill_to_address: address, send_now: send
         })
       })
