@@ -178,7 +178,7 @@ async function executePlan(plan: any, from: string) {
 
   // GENERATE INVOICE
   if (actions.includes('generate_invoice') && price > 0) {
-    let items = (plan.lineItems || []).filter((i: any) => i.rate > 0 && i.qty > 0)
+    let items = (plan.lineItems || []).filter((i: any) => i.rate !== 0 && i.qty > 0)
     if (items.length === 0) items = [{ description: plan.jobTitle || 'Electrical Services', qty: 1, rate: price }]
     const { lineItems, subtotal, gst, total } = calculateLineItems(items)
     const invNum = await getNextBeezyInvoiceNumber()
@@ -198,7 +198,7 @@ async function executePlan(plan: any, from: string) {
 
   // GENERATE QUOTE
   if (actions.includes('generate_quote') && price > 0) {
-    let items = (plan.lineItems || []).filter((i: any) => i.rate > 0 && i.qty > 0)
+    let items = (plan.lineItems || []).filter((i: any) => i.rate !== 0 && i.qty > 0)
     if (items.length === 0) items = [{ description: plan.jobTitle || 'Electrical Services', qty: 1, rate: price }]
     const { lineItems, subtotal, gst, total } = calculateLineItems(items)
     const qn = await getNextQuoteNumber()
@@ -372,7 +372,7 @@ export async function POST(req: NextRequest) {
       summaryParts.push('Generate service report' + (plan.driveImagesInReport ? ' (with images embedded)' : ''))
     }
     if (actions.includes('generate_invoice') && price > 0) {
-      const items = (plan.lineItems || []).filter((i: any) => i.rate > 0)
+      const items = (plan.lineItems || []).filter((i: any) => i.rate !== 0)
       if (items.length > 0) {
         const itemDesc = items.map((i: any) => i.description + ' x' + i.qty + ' $' + i.rate).join(', ')
         summaryParts.push('Invoice: ' + itemDesc + ' (total $' + (price * 1.1).toFixed(2) + ' inc GST)')
