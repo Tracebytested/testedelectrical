@@ -62,9 +62,9 @@ export async function GET(req: NextRequest) {
       pdfBuffer = await generateInvoicePDF({
         invoice_number: inv.invoice_number,
         date: formatDate(inv.created_at),
-        bill_to_name: inv.client_name || '',
-        bill_to_company: inv.client_company || '',
-        bill_to_address: inv.site_address || inv.client_address || '',
+        bill_to_name: inv.bill_to_name || inv.client_name || '',
+        bill_to_company: inv.bill_to_company || inv.client_company || '',
+        bill_to_address: inv.bill_to_address || inv.site_address || inv.client_address || '',
         bill_to_email: inv.client_email || '',
         bill_to_phone: inv.client_phone || '',
         line_items: inv.line_items,
