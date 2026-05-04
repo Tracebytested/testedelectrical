@@ -91,6 +91,11 @@ export default function EditInvoicePage() {
         })
       })
       const inv = await res.json()
+      if (inv.error) {
+        alert('Save failed: ' + inv.error)
+        setSaving(false)
+        return
+      }
       if (send && inv.id) {
         await fetch('/api/invoices', {
           method: 'PUT',
@@ -99,7 +104,10 @@ export default function EditInvoicePage() {
         })
       }
       router.push('/dashboard/invoices')
-    } catch { setSaving(false) }
+    } catch (e: any) {
+      alert('Save failed: ' + (e.message || 'Unknown error'))
+      setSaving(false)
+    }
   }
 
   if (loading) {
