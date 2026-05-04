@@ -55,9 +55,9 @@ export async function POST(req: NextRequest) {
     const dueDate = new Date(today.getTime() + BUSINESS.payment_terms_days * 24 * 60 * 60 * 1000)
 
     const result = await query(
-      `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8) RETURNING *`,
-      [invoiceNumber, data.job_id, data.client_id, JSON.stringify(lineItems), subtotal, gst, total, dueDate]
+      `INSERT INTO invoices (invoice_number, job_id, client_id, line_items, subtotal, gst, total, status, due_date, bill_to_name, bill_to_company, bill_to_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, $10, $11) RETURNING *`,
+      [invoiceNumber, data.job_id, data.client_id, JSON.stringify(lineItems), subtotal, gst, total, dueDate, data.bill_to_name || null, data.bill_to_company || null, data.bill_to_address || null]
     )
 
     return NextResponse.json(result.rows[0])
@@ -156,9 +156,10 @@ export async function PATCH(req: NextRequest) {
 
     const result = await query(
       `UPDATE invoices
-       SET client_id = $1, job_id = $2, line_items = $3, subtotal = $4, gst = $5, total = $6
-       WHERE id = $7 RETURNING *`,
-      [data.client_id, data.job_id, JSON.stringify(lineItems), subtotal, gst, total, data.id]
+       SET client_id = $1, job_id = $2, line_items = $3, subtotal = $4, gst = $5, total = $6,
+           bill_to_name = $7, bill_to_company = $8, bill_to_address = $9
+       WHERE id = $10 RETURNING *`,
+      [data.client_id, data.job_id, JSON.stringify(lineItems), subtotal, gst, total, data.bill_to_name || null, data.bill_to_company || null, data.bill_to_address || null, data.id]
     )
 
     if (!result.rows.length) {
