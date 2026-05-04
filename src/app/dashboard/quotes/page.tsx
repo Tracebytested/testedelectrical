@@ -105,6 +105,15 @@ export default function QuotesPage() {
                           {sending === q.id ? 'Sending...' : 'Send'}
                         </button>
                       )}
+                      {q.status === 'sent' && (
+                        <button
+                          onClick={() => sendQuote(q.id)}
+                          disabled={sending === q.id}
+                          className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-40"
+                        >
+                          {sending === q.id ? 'Sending...' : 'Resend'}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
