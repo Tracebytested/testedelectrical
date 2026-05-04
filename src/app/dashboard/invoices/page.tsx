@@ -121,6 +121,15 @@ export default function InvoicesPage() {
                           {sending === inv.id ? 'Sending...' : 'Send'}
                         </button>
                       )}
+                      {(inv.status === 'sent' || inv.status === 'paid') && (
+                        <button
+                          onClick={() => sendInvoice(inv.id)}
+                          disabled={sending === inv.id}
+                          className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-40"
+                        >
+                          {sending === inv.id ? 'Sending...' : 'Resend'}
+                        </button>
+                      )}
                       {inv.status === 'sent' && (
                         <button
                           onClick={() => markPaid(inv.id)}
