@@ -12,15 +12,14 @@ export async function getNextQuoteNumber(): Promise<string> {
 }
 
 export async function getNextInvoiceNumber(): Promise<string> {
-  const res = await query("SELECT nextval('invoice_number_seq') as val")
-  return `${res.rows[0].val}`
-}
-
-export async function getNextBeezyInvoiceNumber(): Promise<string> {
   await query("CREATE SEQUENCE IF NOT EXISTS beezy_invoice_seq START 1")
   const res = await query("SELECT nextval('beezy_invoice_seq') as val")
   const num = parseInt(res.rows[0].val)
   return 'B' + String(num).padStart(4, '0')
+}
+
+export async function getNextBeezyInvoiceNumber(): Promise<string> {
+  return getNextInvoiceNumber()
 }
 
 export async function getNextReportNumber(): Promise<string> {
