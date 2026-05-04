@@ -59,14 +59,21 @@ export default function ClientsPage() {
     setSaving(false)
   }
 
-  const FormFields = ({ values, onChange }: { values: any, onChange: (f: any) => void }) => (
+  const formFields = [
+    { label: 'Name *', key: 'name', placeholder: 'e.g. Pivotal Property Management' },
+    { label: 'Company', key: 'company', placeholder: 'e.g. Pivotal Pty Ltd' },
+    { label: 'Email', key: 'email', placeholder: 'email@example.com' },
+    { label: 'Phone', key: 'phone', placeholder: '04XX XXX XXX' },
+  ]
+
+  const renderFormFields = (values: any, onChange: (f: any) => void) => (
     <div className="grid grid-cols-2 gap-3 mb-3">
-      {[['Name *', 'name', 'e.g. Pivotal Property Management'], ['Company', 'company', 'e.g. Pivotal Pty Ltd'], ['Email', 'email', 'email@example.com'], ['Phone', 'phone', '04XX XXX XXX']].map(([label, key, placeholder]) => (
-        <div key={key}>
-          <label className="block text-xs text-gray-500 mb-1">{label}</label>
-          <input value={values[key] || ''} onChange={e => onChange({...values, [key]: e.target.value})}
+      {formFields.map(f => (
+        <div key={f.key}>
+          <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
+          <input value={values[f.key] || ''} onChange={e => onChange({...values, [f.key]: e.target.value})}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-400"
-            placeholder={placeholder} />
+            placeholder={f.placeholder} />
         </div>
       ))}
       <div className="col-span-2">
@@ -97,7 +104,7 @@ export default function ClientsPage() {
       {showAdd && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5">
           <h3 className="font-semibold text-gray-900 mb-4">Add new client</h3>
-          <FormFields values={form} onChange={setForm} />
+          {renderFormFields(form, setForm)}
           <div className="flex gap-3">
             <button onClick={addClient} disabled={saving || !form.name.trim()}
               className="bg-[#1a1a1a] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-40">
@@ -114,7 +121,7 @@ export default function ClientsPage() {
       {editing && (
         <div className="bg-white rounded-2xl border border-blue-200 p-5 mb-5">
           <h3 className="font-semibold text-gray-900 mb-4">Edit — {editing.name}</h3>
-          <FormFields values={editing} onChange={setEditing} />
+          {renderFormFields(editing, setEditing)}
           <div className="flex gap-3">
             <button onClick={saveEdit} disabled={saving}
               className="bg-[#1a1a1a] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-40">
