@@ -47,7 +47,9 @@ export async function GET(req: NextRequest) {
 
     } else if (type === 'invoice') {
       const result = await query(`
-        SELECT i.*, c.name as client_name, c.email as client_email, j.site_address, j.title as job_title
+        SELECT i.*, c.name as client_name, c.email as client_email, c.phone as client_phone,
+          c.company as client_company, c.address as client_address,
+          j.site_address, j.title as job_title
         FROM invoices i
         LEFT JOIN clients c ON i.client_id = c.id
         LEFT JOIN jobs j ON i.job_id = j.id
@@ -61,7 +63,10 @@ export async function GET(req: NextRequest) {
         invoice_number: inv.invoice_number,
         date: formatDate(inv.created_at),
         bill_to_name: inv.client_name || '',
-        bill_to_address: inv.site_address || '',
+        bill_to_company: inv.client_company || '',
+        bill_to_address: inv.client_address || inv.site_address || '',
+        bill_to_email: inv.client_email || '',
+        bill_to_phone: inv.client_phone || '',
         line_items: inv.line_items,
         subtotal: parseFloat(inv.subtotal),
         gst: parseFloat(inv.gst),
@@ -70,7 +75,9 @@ export async function GET(req: NextRequest) {
 
     } else if (type === 'quote') {
       const result = await query(`
-        SELECT q.*, c.name as client_name, j.site_address, j.title as job_title
+        SELECT q.*, c.name as client_name, c.email as client_email, c.phone as client_phone,
+          c.company as client_company, c.address as client_address,
+          j.site_address, j.title as job_title
         FROM quotes q
         LEFT JOIN clients c ON q.client_id = c.id
         LEFT JOIN jobs j ON q.job_id = j.id
@@ -85,7 +92,10 @@ export async function GET(req: NextRequest) {
         quote_number: q.quote_number,
         date: formatDate(q.created_at),
         quote_to_name: q.client_name || '',
-        quote_to_address: q.site_address || '',
+        quote_to_company: q.client_company || '',
+        quote_to_address: q.client_address || q.site_address || '',
+        quote_to_email: q.client_email || '',
+        quote_to_phone: q.client_phone || '',
         line_items: q.line_items,
         subtotal: parseFloat(q.subtotal),
         gst: parseFloat(q.gst),
