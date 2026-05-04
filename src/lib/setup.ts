@@ -125,6 +125,11 @@ export async function setupDatabase() {
     await query(`CREATE SEQUENCE IF NOT EXISTS invoice_number_seq START 51085`)
     await query(`CREATE SEQUENCE IF NOT EXISTS report_number_seq START 1047`)
 
+    // Add bill_to columns to invoices (safe to run multiple times)
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name VARCHAR(255)`)
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_company VARCHAR(255)`)
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_address TEXT`)
+
     await query(`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)`)
     await query(`CREATE INDEX IF NOT EXISTS idx_emails_processed ON emails(processed)`)
     await query(`CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)`)
