@@ -123,7 +123,7 @@ export async function PUT(req: NextRequest) {
       })
 
       await query(
-        "UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = $1",
+        "UPDATE invoices SET status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END, sent_at = NOW() WHERE id = $1",
         [invoice_id]
       )
     }
